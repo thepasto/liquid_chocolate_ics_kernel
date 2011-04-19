@@ -33,7 +33,6 @@ void debug_mutex_lock_common(struct mutex *lock, struct mutex_waiter *waiter)
 	waiter->magic = waiter;
 	INIT_LIST_HEAD(&waiter->list);
 }
-EXPORT_SYMBOL(debug_mutex_set_owner);
 
 void debug_mutex_wake_waiter(struct mutex *lock, struct mutex_waiter *waiter)
 {
