@@ -88,6 +88,7 @@ struct percpu_counter vm_committed_as;
 
 /* amount of vm to protect from userspace access */
 unsigned long mmap_min_addr = CONFIG_DEFAULT_MMAP_MIN_ADDR;
+EXPORT_SYMBOL(mmap_min_addr);
 
 /*
  * Check that a process has enough memory to allocate a new virtual
