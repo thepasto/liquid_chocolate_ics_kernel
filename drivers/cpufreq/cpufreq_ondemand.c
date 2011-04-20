@@ -31,13 +31,12 @@
 
 #define DEF_FREQUENCY_DOWN_DIFFERENTIAL		(10)
 #define DEF_FREQUENCY_UP_THRESHOLD		(80)
-#define DEF_SAMPLING_DOWN_FACTOR    		(50)
-#define MAX_SAMPLING_DOWN_FACTOR  		(100000)
+#define DEF_SAMPLING_DOWN_FACTOR		(10)
+#define MAX_SAMPLING_DOWN_FACTOR		(100000)
 #define MICRO_FREQUENCY_DOWN_DIFFERENTIAL	(3)
 #define MICRO_FREQUENCY_UP_THRESHOLD		(95)
 #define MIN_FREQUENCY_UP_THRESHOLD		(11)
 #define MAX_FREQUENCY_UP_THRESHOLD		(100)
-#define MIN_FREQUENCY_DOWN_DIFFERENTIAL		(1)
 
 /*
  * The polling frequency of this governor depends on the capability of
@@ -235,7 +234,6 @@ static ssize_t show_##file_name						\
 show_one(sampling_rate, sampling_rate);
 show_one(up_threshold, up_threshold);
 show_one(sampling_down_factor, sampling_down_factor);
-show_one(down_differential, down_differential);
 show_one(ignore_nice_load, ignore_nice);
 show_one(powersave_bias, powersave_bias);
 
@@ -297,26 +295,6 @@ static ssize_t store_sampling_down_factor(struct cpufreq_policy *policy,
 		dbs_info = &per_cpu(cpu_dbs_info, j);
 		dbs_info->rate_mult = 1;
 	}
-	mutex_unlock(&dbs_mutex);
-
-	return count;
-}
-
-static ssize_t store_down_differential(struct cpufreq_policy *unused,
-		const char *buf, size_t count)
-{
-	unsigned int input;
-	int ret;
-	ret = sscanf(buf, "%u", &input);
-
-	mutex_lock(&dbs_mutex);
-	if (ret != 1 || input >= dbs_tuners_ins.up_threshold ||
-			input < MIN_FREQUENCY_DOWN_DIFFERENTIAL) {
-		mutex_unlock(&dbs_mutex);
-		return -EINVAL;
-	}
-
-	dbs_tuners_ins.down_differential = input;
 	mutex_unlock(&dbs_mutex);
 
 	return count;
@@ -386,7 +364,6 @@ __ATTR(_name, 0644, show_##_name, store_##_name)
 
 define_one_rw(sampling_rate);
 define_one_rw(up_threshold);
-define_one_rw(down_differential);
 define_one_rw(ignore_nice_load);
 define_one_rw(powersave_bias);
 define_one_rw(sampling_down_factor);
@@ -396,7 +373,6 @@ static struct attribute * dbs_attributes[] = {
 	&sampling_rate_min.attr,
 	&sampling_rate.attr,
 	&up_threshold.attr,
-	&down_differential.attr,
 	&sampling_down_factor.attr,
 	&ignore_nice_load.attr,
 	&powersave_bias.attr,
@@ -505,7 +481,7 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 		if (policy->cur < policy->max)
 			this_dbs_info->rate_mult =
 				dbs_tuners_ins.sampling_down_factor;
-		dbs_freq_increase(policy, policy->max);
+	dbs_freq_increase(policy, policy->max);
 		return;
 	}
 
@@ -526,10 +502,10 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 		freq_next = max_load_freq /
 				(dbs_tuners_ins.up_threshold -
 				 dbs_tuners_ins.down_differential);
-		
-		 /* No longer fully busy, reset rate_mult */
-		 this_dbs_info->rate_mult = 1;
-				 
+
+		/* No longer fully busy, reset rate_mult */
+		this_dbs_info->rate_mult = 1;
+
 		if (freq_next < policy->min)
 			freq_next = policy->min;
 
@@ -555,7 +531,7 @@ static void do_dbs_timer(struct work_struct *work)
 	/* We want all CPUs to do sampling nearly on same jiffy */
 	int delay = usecs_to_jiffies(dbs_tuners_ins.sampling_rate
 		* dbs_info->rate_mult);
-	
+
 	if (num_online_cpus() > 1)
 		delay -= jiffies % delay;
 
@@ -590,6 +566,7 @@ static inline void dbs_timer_init(struct cpu_dbs_info_s *dbs_info)
 {
 	/* We want all CPUs to do sampling nearly on same jiffy */
 	int delay = usecs_to_jiffies(dbs_tuners_ins.sampling_rate);
+
 	if (num_online_cpus() > 1)
 		delay -= jiffies % delay;
 
@@ -620,8 +597,6 @@ static void dbs_refresh_callback(struct work_struct *unused)
 	policy = this_dbs_info->cur_policy;
 
 	if (policy->cur < policy->max) {
-		policy->cur = policy->max;
-
 		__cpufreq_driver_target(policy, policy->max,
 					CPUFREQ_RELATION_L);
 		this_dbs_info->prev_cpu_idle = get_cpu_idle_time(0,
@@ -629,7 +604,6 @@ static void dbs_refresh_callback(struct work_struct *unused)
 	}
 	unlock_policy_rwsem_write(0);
 }
-#endif
 
 static DECLARE_WORK(dbs_refresh_work, dbs_refresh_callback);
 
@@ -658,7 +632,7 @@ static int dbs_input_connect(struct input_handler *handler,
 {
 	struct input_handle *handle;
 	int error;
-	
+
 	/* filter out those input_dev that we don't care */
 	if (input_dev_filter(dev->name))
 		return 0;
@@ -706,6 +680,7 @@ static struct input_handler dbs_input_handler = {
 	.name		= "cpufreq_ond",
 	.id_table	= dbs_ids,
 };
+#endif
 
 static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 				   unsigned int event)
@@ -769,9 +744,10 @@ static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 			dbs_tuners_ins.sampling_rate = def_sampling_rate;
 		}
 		dbs_timer_init(this_dbs_info);
-		#ifdef CONFIG_CPU_FREQ_GOV_ONDEMAND_INPUT
+
+#ifdef CONFIG_CPU_FREQ_GOV_ONDEMAND_INPUT
 		rc = input_register_handler(&dbs_input_handler);
-		#endif
+#endif
 		mutex_unlock(&dbs_mutex);
 		break;
 
@@ -780,9 +756,10 @@ static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 		dbs_timer_exit(this_dbs_info);
 		sysfs_remove_group(&policy->kobj, &dbs_attr_group);
 		dbs_enable--;
-		#ifdef CONFIG_CPU_FREQ_GOV_ONDEMAND_INPUT
+#ifdef CONFIG_CPU_FREQ_GOV_ONDEMAND_INPUT
 		input_unregister_handler(&dbs_input_handler);
-		#endif
+#endif
+
 		mutex_unlock(&dbs_mutex);
 
 		break;
@@ -823,10 +800,13 @@ static int __init cpufreq_gov_dbs_init(void)
 	idle_time = get_cpu_idle_time_us(cpu, &wall);
 	put_cpu();
 	if (idle_time != -1ULL) {
+/* use default threshold for 7X00A project */
+#ifndef CONFIG_ARCH_MSM7X00A
 		/* Idle micro accounting is supported. Use finer thresholds */
 		dbs_tuners_ins.up_threshold = MICRO_FREQUENCY_UP_THRESHOLD;
 		dbs_tuners_ins.down_differential =
 					MICRO_FREQUENCY_DOWN_DIFFERENTIAL;
+#endif
 	}
 
 	kondemand_wq = create_workqueue("kondemand");
