@@ -1622,7 +1622,7 @@ void flush_pmem_file(struct file *file, unsigned long offset, unsigned long len)
 		return;
 
 	id = get_id(file);
-	if (!pmem[id].cached)
+	if (!pmem[id].cached || file->f_flags & O_SYNC)
 		return;
 
 	/* is_pmem_file fails if !file */
