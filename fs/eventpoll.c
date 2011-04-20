@@ -1036,7 +1036,7 @@ struct timespec end_time;
   if (timeout > 0) {
  	ktime_get_ts(&end_time);
 	timespec_add_ns(&end_time, (u64)timeout * NSEC_PER_MSEC);
- 	slack = estimate_accuracy(&end_time);
+ 	slack = select_estimate_accuracy(&end_time);
  	to = &expires;
  	*to = timespec_to_ktime(end_time);
  	  } else if (timeout == 0) {
