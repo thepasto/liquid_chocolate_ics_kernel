@@ -514,8 +514,9 @@ static void do_dbs_timer(struct work_struct *work)
 
 	/* We want all CPUs to do sampling nearly on same jiffy */
 	int delay = usecs_to_jiffies(dbs_tuners_ins.sampling_rate);
-
-	delay -= jiffies % delay;
+	
+	if (num_online_cpus() > 1)
+		delay -= jiffies % delay;
 
 	if (lock_policy_rwsem_write(cpu) < 0)
 		return;
@@ -564,6 +565,7 @@ static inline void dbs_timer_exit(struct cpu_dbs_info_s *dbs_info)
 	cancel_delayed_work(&dbs_info->work);
 }
 
+#ifdef CONFIG_CPU_FREQ_GOV_ONDEMAND_INPUT
 static void dbs_refresh_callback(struct work_struct *unused)
 {
 	struct cpufreq_policy *policy;
@@ -585,6 +587,7 @@ static void dbs_refresh_callback(struct work_struct *unused)
 	}
 	unlock_policy_rwsem_write(0);
 }
+#endif
 
 static DECLARE_WORK(dbs_refresh_work, dbs_refresh_callback);
 
@@ -594,11 +597,29 @@ static void dbs_input_event(struct input_handle *handle, unsigned int type,
 	schedule_work(&dbs_refresh_work);
 }
 
+static int input_dev_filter(const char* input_dev_name)
+{
+	int ret = 0;
+	if (strstr(input_dev_name, "touchscreen") ||
+		strstr(input_dev_name, "-keypad") ||
+		strstr(input_dev_name, "-nav") ||
+		strstr(input_dev_name, "-oj")) {
+	}
+	else {
+		ret = 1;
+	}
+	return ret;
+}
+
 static int dbs_input_connect(struct input_handler *handler,
 		struct input_dev *dev, const struct input_device_id *id)
 {
 	struct input_handle *handle;
 	int error;
+	
+	/* filter out those input_dev that we don't care */
+	if (input_dev_filter(dev->name))
+		return 0;
 
 	handle = kzalloc(sizeof(struct input_handle), GFP_KERNEL);
 	if (!handle)
@@ -705,7 +726,9 @@ static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 			dbs_tuners_ins.sampling_rate = def_sampling_rate;
 		}
 		dbs_timer_init(this_dbs_info);
+		#ifdef CONFIG_CPU_FREQ_GOV_ONDEMAND_INPUT
 		rc = input_register_handler(&dbs_input_handler);
+		#endif
 		mutex_unlock(&dbs_mutex);
 		break;
 
@@ -714,7 +737,9 @@ static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 		dbs_timer_exit(this_dbs_info);
 		sysfs_remove_group(&policy->kobj, &dbs_attr_group);
 		dbs_enable--;
+		#ifdef CONFIG_CPU_FREQ_GOV_ONDEMAND_INPUT
 		input_unregister_handler(&dbs_input_handler);
+		#endif
 		mutex_unlock(&dbs_mutex);
 
 		break;
