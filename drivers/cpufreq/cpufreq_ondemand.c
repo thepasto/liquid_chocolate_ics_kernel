@@ -31,7 +31,7 @@
 
 #define DEF_FREQUENCY_DOWN_DIFFERENTIAL		(10)
 #define DEF_FREQUENCY_UP_THRESHOLD		(80)
-#define DEF_SAMPLING_DOWN_FACTOR		(10)
+#define DEF_SAMPLING_DOWN_FACTOR		(1)
 #define MAX_SAMPLING_DOWN_FACTOR		(100000)
 #define MICRO_FREQUENCY_DOWN_DIFFERENTIAL	(3)
 #define MICRO_FREQUENCY_UP_THRESHOLD		(95)
@@ -634,8 +634,8 @@ static int dbs_input_connect(struct input_handler *handler,
 	int error;
 
 	/* filter out those input_dev that we don't care */
-	if (input_dev_filter(dev->name))
-		return 0;
+	//if (input_dev_filter(dev->name))
+	//	return 0;
 
 	handle = kzalloc(sizeof(struct input_handle), GFP_KERNEL);
 	if (!handle)
@@ -801,12 +801,12 @@ static int __init cpufreq_gov_dbs_init(void)
 	put_cpu();
 	if (idle_time != -1ULL) {
 /* use default threshold for 7X00A project */
-#ifndef CONFIG_ARCH_MSM7X00A
+//#ifndef CONFIG_ARCH_MSM7X00A
 		/* Idle micro accounting is supported. Use finer thresholds */
 		dbs_tuners_ins.up_threshold = MICRO_FREQUENCY_UP_THRESHOLD;
 		dbs_tuners_ins.down_differential =
 					MICRO_FREQUENCY_DOWN_DIFFERENTIAL;
-#endif
+//#endif
 	}
 
 	kondemand_wq = create_workqueue("kondemand");
