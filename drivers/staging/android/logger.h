@@ -66,12 +66,12 @@ enum logidx {
 	LOG_INVALID_IDX,
 };
 
-int logger_write(const enum logidx index,
+/*int logger_write(const enum logidx index,
 		const unsigned char priority,
 		const char __kernel * const tag,
 		const char __kernel * const fmt,
 		...);
-
+*/
 #endif /* __KERNEL__ */
 
 #endif /* _LINUX_LOGGER_H */
