@@ -11,6 +11,7 @@
 #include <linux/ioctl.h>
 #include <asm/uaccess.h>
 #include <linux/miscdevice.h>
+#include <linux/suspend.h>
 #include "isl29018.h"
 
 #define  ISL29018_GPIO   142
@@ -285,17 +286,29 @@ static int isl_ls_ioctl(struct inode *inode, struct file *file,
 static int isl_ps_open(struct inode *inode, struct file *file)
 {
 	struct i2c_client *client = private_isl29018_client;
+	struct isl_data *cdata;
 	if (client == NULL){
 		pr_err("[ISL] I2C driver not install (isl_open)\n");
 		return -1;
 	}
 	pr_debug("[ISL] has been opened\n");
+	client = private_isl29018_client;
+	cdata = i2c_get_clientdata(client);
+
+	input_report_abs(cdata->ps_input_dev, ABS_DISTANCE, 10);
+	input_sync(cdata->ps_input_dev);
 	return 0;
 }
 
 static int isl_ps_close(struct inode *inode, struct file *file)
 {
 	pr_debug("[ISL] has been closed\n");
+//	pm_suspend(PM_SUSPEND_MEM);
+//	msleep(100);
+//	pm_suspend(PM_SUSPEND_ON);
+//	msleep(300);
+//	suspend_finish();
+	late_resume(NULL);
 	return 0;
 }
 
@@ -411,13 +424,14 @@ int read_ps_adc(uint16_t *adc_value)
 	struct isl_data *cdata;
 	unsigned char reg_buf[2] = {0};
 	int rs=0;
-	static uint16_t old_adc = 0;
+	int prox_data = -1;
+	int ir_data = -1;
 
 	client = private_isl29018_client;
 	cdata = i2c_get_clientdata(client);
 
 	reg_buf[0] = 0x01;  //Addr: 0x01
-	reg_buf[1] = 0xB5; //bit 12 , range2:4000
+	reg_buf[1] = 0x75;//0xB5; //bit 12 , range2:4000
 	rs = i2c_write(client, reg_buf, 2);
 	if (rs == -1) {
 		pr_err("[ISL]i2c_write reg 0x08 fail in isl_complete_reset()\n");
@@ -429,22 +443,40 @@ int read_ps_adc(uint16_t *adc_value)
 	if (rs == -1) {
 		pr_err("[ISL]i2c_write reg 0x08 fail in isl_complete_reset()\n");
 	}
+
 	msleep(10);
 	reg_buf[0] = 0x02;  // Addr: 0x02, 0x03
 	rs = i2c_read(client, reg_buf, 2);
 	if (rs == -1) {
 		pr_err("[ISL]i2c_read fail in isl_adc()\n");
 		return 0;
-	} else {
-		if ((reg_buf[1] >> 7) == 0) {
-			*adc_value = (reg_buf[1] * 256) + reg_buf[0];
-			if (old_adc == *adc_value) {
-				(*adc_value)++;
-			}
-			old_adc = *adc_value;
-		}
-		return 1 ;
 	}
+	prox_data = (reg_buf[1] * 256) + reg_buf[0];
+
+	reg_buf[0] = 0x00;  //Addr: 0x00
+	reg_buf[1] = 0x40;
+	rs = i2c_write(client, reg_buf, 2);
+	if (rs == -1) {
+		pr_err("[ISL]i2c_write reg 0x08 fail in isl_complete_reset()\n");
+	}
+
+	msleep(10);
+	reg_buf[0] = 0x02;  // Addr: 0x02, 0x03
+	rs = i2c_read(client, reg_buf, 2);
+	if (rs == -1) {
+		pr_err("[ISL]i2c_read fail in isl_adc()\n");
+		return 0;
+	} 
+	ir_data = (reg_buf[1] * 256) + reg_buf[0];
+
+//	printk(KERN_ERR "###########prox:%d-ir:%d############\n", prox_data, ir_data);
+	if ((reg_buf[1] >> 7) == 0) {
+		if (prox_data >= ir_data)
+			*adc_value = prox_data - ir_data;
+		else
+			*adc_value = prox_data;
+	}
+	return 1 ;
 }
 
 static ssize_t isl_ps_adc_show(struct device *dev,
@@ -499,7 +531,15 @@ void report_ps_adc(void)
 	cdata = i2c_get_clientdata(client);
 	ret = read_ps_adc(&adc_value);
 	if (ret) {
-		report_value = 10 * (2048-adc_value) / (2048-g_distance);
+		if (g_distance > adc_value) {
+			g_distance = adc_value;
+			printk(KERN_INFO "#######g_distance changed :%d#######\n", g_distance);
+		}
+//		report_value = 10 * (2048-adc_value) / (2048-g_distance);
+//		if (g_distance > 2048) {
+			report_value = 10*(4096-adc_value)/(4096-g_distance);
+//		}
+		printk(KERN_INFO "#######report_value:%d-adc_value:%d-g_distance:%d#######\n", report_value, adc_value, g_distance);
 		input_report_abs(cdata->ps_input_dev, ABS_DISTANCE, report_value);
 		input_sync(cdata->ps_input_dev);
 	}

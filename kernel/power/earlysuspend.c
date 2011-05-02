@@ -38,7 +38,7 @@ module_param_named(debug_mask, debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP);
 static DEFINE_MUTEX(early_suspend_lock);
 static LIST_HEAD(early_suspend_handlers);
 static void early_suspend(struct work_struct *work);
-static void late_resume(struct work_struct *work);
+void late_resume(struct work_struct *work);
 static DECLARE_WORK(early_suspend_work, early_suspend);
 static DECLARE_WORK(late_resume_work, late_resume);
 static DEFINE_SPINLOCK(state_lock);
@@ -154,7 +154,7 @@ abort:
 	spin_unlock_irqrestore(&state_lock, irqflags);
 }
 
-static void late_resume(struct work_struct *work)
+void late_resume(struct work_struct *work)
 {
 	struct early_suspend *pos;
 	unsigned long irqflags;
