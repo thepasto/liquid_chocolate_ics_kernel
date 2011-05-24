@@ -29,6 +29,8 @@
 #define  CALCULATING_LUX(range, resolution, adc) \
 			((range) * (adc) / (resolution))
 
+int read_ps_adc(uint16_t *adc_value);
+
 static uint16_t lsensor_adc_table[10] = {
 	0, 0x1c71, 0x38e2, 0x5553, 0x71c4, 0x8e35, 0xaaa6, 0xc717, 0xe388, 0xffff
 };
@@ -353,6 +355,7 @@ static int isl_ps_ioctl(struct inode *inode, struct file *file,
 	/* cmd mapping */
 	switch (cmd) {
 		case PROXIMITY_SENSOR_IOCTL_ENABLE:
+			read_ps_adc(&g_distance);
 			if (get_user(val, (unsigned long __user *)arg))
 				return -EFAULT;
 			if (val) {
