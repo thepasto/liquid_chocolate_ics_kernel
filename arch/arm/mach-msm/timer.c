@@ -188,7 +188,7 @@ static int msm_timer_set_next_event(unsigned long cycles,
 	}
 	now = msm_read_timer_count(clock);
 	clock->last_set = now;
-	clock->alarm_vtime = alarm + clock->sleep_offset;
+	clock->alarm_vtime = round_jiffies(alarm + clock->sleep_offset);
 	late = now - alarm;
 	if (late >= (int)(-clock->write_delay << clock->shift) && late < DGT_HZ*5) {
 		static int print_limit = 10;
