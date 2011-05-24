@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2010, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2008-2009, Code Aurora Forum. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -69,27 +69,7 @@
 #define TRACE(fmt,x...)		do { } while (0)
 #endif
 
-#define MAX_SUPPORTED_INSTANCES 1
-
-/*
- *why magic number 300?
-
- *the Maximum size of the DAL payload is 512 bytes according to DAL protocol
- *Initialize call to QDSP6 from scorpion need to send sequence header as part of
- *the DAL payload. DAL payload to initialize contains the following
-
- *1) configuration data- 52 bytes 2) length field of config data - 4 bytes
- *3) sequence header data ( that is from the bit stream)
- *4) length field for sequence header - 4 bytes
- *5) length field for output structure - 4 bytes
-
- *that left with 512 - 68 = 448 bytes. It is unusual that we get a sequence
- *header with such a big length unless the bit stream has multiple sequence
- *headers.We estimated 300 is good enough which gives enough room for rest
- *of the payload and even reserves some space for future payload.
- */
-
-#define VDEC_MAX_SEQ_HEADER_SIZE 300
+#define MAX_SUPPORTED_INSTANCES 2
 
 enum {
 	VDEC_DALRPC_INITIALIZE = DAL_OP_FIRST_DEVICE_API,
@@ -100,16 +80,6 @@ enum {
 	VDEC_DALRPC_FLUSH,
 	VDEC_DALRPC_REUSEFRAMEBUFFER,
 	VDEC_DALRPC_GETDECATTRIBUTES,
-	VDEC_DALRPC_SUSPEND,
-	VDEC_DALRPC_RESUME,
-	VDEC_DALRPC_INITIALIZE_00,
-	VDEC_DALRPC_GETINTERNALBUFFERREQ,
-	VDEC_DALRPC_SETBUFFERS_00,
-	VDEC_DALRPC_FREEBUFFERS_00,
-	VDEC_DALRPC_GETPROPERTY,
-	VDEC_DALRPC_SETPROPERTY,
-	VDEC_DALRPC_GETDECATTRIBUTES_00,
-	VDEC_DALRPC_PERFORMANCE_CHANGE_REQUEST
 };
 
 enum {
@@ -279,25 +249,7 @@ static struct vdec_mem_list *vdec_get_mem_from_list(struct vdec_data *vd,
 		return NULL;
 
 }
-static int vdec_performance_change_request(struct vdec_data *vd, void* argp)
-{
-	u32 request_type;
-	int ret;
 
-	ret = copy_from_user(&request_type, argp, sizeof(request_type));
-	if (ret) {
-		pr_err("%s: copy_from_user failed\n", __func__);
-		return ret;
-	}
-	ret = dal_call_f0(vd->vdec_handle,
-			VDEC_DALRPC_PERFORMANCE_CHANGE_REQUEST,
-			request_type);
-	if (ret) {
-		pr_err("%s: remote function failed (%d)\n", __func__, ret);
-		return ret;
-	}
-	return ret;
-}
 static int vdec_initialize(struct vdec_data *vd, void *argp)
 {
 	struct vdec_config_sps vdec_cfg_sps;
@@ -318,12 +270,6 @@ static int vdec_initialize(struct vdec_data *vd, void *argp)
 	vi_cfg.decode_done_evt = VDEC_ASYNCMSG_DECODE_DONE;
 	vi_cfg.reuse_frame_evt = VDEC_ASYNCMSG_REUSE_FRAME;
 	memcpy(&vi_cfg.cfg, &vdec_cfg_sps.cfg, sizeof(struct vdec_config));
-
-	/*
-	 * restricting the max value of the seq header
-	 */
-	if (vdec_cfg_sps.seq.len > VDEC_MAX_SEQ_HEADER_SIZE)
-		vdec_cfg_sps.seq.len = VDEC_MAX_SEQ_HEADER_SIZE;
 
 	header = kmalloc(vdec_cfg_sps.seq.len, GFP_KERNEL);
 	if (!header) {
@@ -536,11 +482,6 @@ static int vdec_flush(struct vdec_data *vd, void *argp)
 	u32 flush_type;
 	int ret = 0;
 
-   if (!vd->mem_initialized) {
-   pr_err("%s: memory is not being initialized!\n", __func__);
-   return -EPERM;
-   }
-
 	ret = copy_from_user(&flush_type, argp, sizeof(flush_type));
 	if (ret) {
 		pr_err("%s: copy_from_user failed\n", __func__);
@@ -752,9 +693,6 @@ static long vdec_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		if (ret)
 			pr_err("%s: remote function failed (%d)\n",
 				__func__, ret);
-		break;
-	case VDEC_IOCTL_PERFORMANCE_CHANGE_REQ:
-		ret = vdec_performance_change_request(vd, argp);
 		break;
 	default:
 		pr_err("%s: invalid ioctl!\n", __func__);

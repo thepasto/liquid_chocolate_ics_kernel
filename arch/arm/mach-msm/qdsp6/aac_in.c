@@ -113,9 +113,8 @@ static long q6_aac_in_ioctl(struct file *file,
 			rc = -EFAULT;
 			break;
 		}
-		if (aac->str_cfg.buffer_size < 1543) {
-			pr_err("[%s:%s] Buffer size too small\n", __MM_FILE__,
-					__func__);
+		if (aac->str_cfg.buffer_size < 519) {
+			MM_ERR("Buffer size too small\n");
 			rc = -EINVAL;
 			break;
 		}
@@ -128,9 +127,8 @@ static long q6_aac_in_ioctl(struct file *file,
 				 sizeof(struct msm_audio_aac_enc_config))) {
 			rc = -EFAULT;
 		}
-		if (aac->cfg.channels < 1 || aac->cfg.channels > 2) {
-			pr_err("[%s:%s]invalid number of channels\n",
-				 __MM_FILE__, __func__);
+		if (aac->cfg.channels != 1) {
+			MM_ERR("only mono is supported\n");
 			rc = -EINVAL;
 		}
 		if (aac->cfg.sample_rate != 48000) {
@@ -170,7 +168,7 @@ static int q6_aac_in_open(struct inode *inode, struct file *file)
 	mutex_init(&aac->lock);
 	file->private_data = aac;
 	aac->audio_client = NULL;
-	aac->str_cfg.buffer_size = 1543;
+	aac->str_cfg.buffer_size = 519;
 	aac->str_cfg.buffer_count = 2;
 	aac->cfg.channels = 1;
 	aac->cfg.bit_rate = 192000;
@@ -193,38 +191,30 @@ static ssize_t q6_aac_in_read(struct file *file, char __user *buf,
 
 	mutex_lock(&aac->lock);
 	ac = aac->audio_client;
-
 	if (!ac) {
 		res = -ENODEV;
 		goto fail;
 	}
+	while (count > xfer) {
+		ab = ac->buf + ac->cpu_buf;
 
-	ab = ac->buf + ac->cpu_buf;
+		if (ab->used)
+			wait_event(ac->wait, (ab->used == 0));
 
-	if (ab->used)
-		wait_event(ac->wait, (ab->used == 0));
+		xfer = ab->actual_size;
 
-	xfer = ab->actual_size;
+		if (copy_to_user(buf, ab->data, xfer)) {
+			res = -EFAULT;
+			goto fail;
+		}
 
-	if (xfer > count) {
+		buf += xfer;
+		count -= xfer;
 
-		pr_err("[%s:%s] read failed! byte count too small\n",
-				__MM_FILE__, __func__);
-		res = -EINVAL;
-		goto fail;
+		ab->used = 1;
+		q6audio_read(ac, ab);
+		ac->cpu_buf ^= 1;
 	}
-
-	if (copy_to_user(buf, ab->data, xfer)) {
-		res = -EFAULT;
-		goto fail;
-	}
-
-	buf += xfer;
-
-	ab->used = 1;
-	q6audio_read(ac, ab);
-	ac->cpu_buf ^= 1;
-
 	res = buf - start;
 fail:
 	mutex_unlock(&aac->lock);
