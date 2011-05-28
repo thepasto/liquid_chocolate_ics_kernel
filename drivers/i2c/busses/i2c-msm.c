@@ -118,6 +118,19 @@ dump_status(uint32_t status)
 }
 #endif
 
+static void msm_i2c_write_delay(struct msm_i2c_dev *dev)
+{
+       /* If scl is still high we have >4us (for 100kbps) to write the data
+        * register before we risk hitting a bug where the controller releases
+        * scl to soon after driving sda low. Writing the data after the
+        * scheduled release time for scl also avoids the bug.
+        */
+       if (readl(dev->base + I2C_INTERFACE_SELECT) & I2C_INTERFACE_SELECT_SCL)
+               return;
+       udelay(6);
+}
+
+
 #if defined (CONFIG_MACH_ACER_A1)
 uint16_t get_address(struct msm_i2c_dev *dev)
 {
@@ -188,9 +201,13 @@ msm_i2c_interrupt(int irq, void *devid)
 				 * Per I2C MSM HW Specs: Write LAST_BYTE befure
 				 * reading 2nd last byte
 				 */
-				if (dev->cnt == 2)
+				if (dev->cnt == 2){
+					//if ((status & I2C_STATUS_LOW_CLK_STATE) ==	I2C_STATUS_LOW_CLK_STATE)
+					//udelay((dev->one_bit_t >> 1) + 1);
+					udelay(64);
 					writel(I2C_WRITE_DATA_LAST_BYTE,
 						dev->base + I2C_WRITE_DATA);
+				}
 				*data = readl(dev->base + I2C_READ_DATA);
 				dev->cnt--;
 				dev->pos++;
@@ -257,9 +274,10 @@ msm_i2c_interrupt(int irq, void *devid)
 			 * only if I2C clock FSM is LOW. The delay is not needed
 			 * if I2C clock FSM is HIGH or FORCED_LOW.
 			 */
-			if ((status & I2C_STATUS_LOW_CLK_STATE) ==
-					I2C_STATUS_LOW_CLK_STATE)
-				udelay((dev->one_bit_t >> 1) + 1);
+			//if ((status & I2C_STATUS_LOW_CLK_STATE) == I2C_STATUS_LOW_CLK_STATE)
+			/*udelay((dev->one_bit_t >> 1) + 1);*/
+			udelay(64);
+
 			writel(data, dev->base + I2C_WRITE_DATA);
 			dev->pos++;
 			dev->cnt--;
@@ -814,7 +832,8 @@ msm_i2c_probe(struct platform_device *pdev)
 		goto err_i2c_add_adapter_failed;
 	}
 	ret = request_irq(dev->irq, msm_i2c_interrupt,
-			IRQF_TRIGGER_RISING, pdev->name, dev);
+			/* IRQF_TRIGGER_RISING, pdev->name, dev); */
+			IRQF_DISABLED | IRQF_TRIGGER_RISING, pdev->name, dev);
 	if (ret) {
 		dev_err(&pdev->dev, "request_irq failed\n");
 		goto err_request_irq_failed;
