@@ -81,10 +81,10 @@
 /* AVR Sensitivity */
 #define USE_FS                    1
 #define SENSITIVITY_REG           0x60
-#define SENSITIVITY               30
+#define SENSITIVITY               50
 
 /* Vibrator */
-#define VIB_DELAY_TIME        35
+#define VIB_DELAY_TIME        30
 void pmic_vibrator_on(struct work_struct *work);
 void pmic_vibrator_off(struct work_struct *work);
 
