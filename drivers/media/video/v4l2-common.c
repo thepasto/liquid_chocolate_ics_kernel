@@ -852,7 +852,7 @@ EXPORT_SYMBOL(v4l2_chip_ident_i2c_client);
 
 /* ----------------------------------------------------------------- */
 
-/* Helper function for I2C legacy drivers */
+/* Helper function for I2C legacy drivers 
 
 int v4l2_i2c_attach(struct i2c_adapter *adapter, int address, struct i2c_driver *driver,
 		const char *name,
@@ -872,14 +872,14 @@ int v4l2_i2c_attach(struct i2c_adapter *adapter, int address, struct i2c_driver 
 
 	err = probe(client, NULL);
 	if (err == 0) {
-		i2c_attach_client(client);
+		 i2c_new_device(adapter, &info);
 	} else {
 		kfree(client);
 	}
 	return err != -ENOMEM ? 0 : err;
 }
 EXPORT_SYMBOL(v4l2_i2c_attach);
-
+*/
 void v4l2_i2c_subdev_init(struct v4l2_subdev *sd, struct i2c_client *client,
 		const struct v4l2_subdev_ops *ops)
 {
