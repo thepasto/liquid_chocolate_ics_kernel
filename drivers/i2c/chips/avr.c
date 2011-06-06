@@ -375,7 +375,7 @@ static void avr_early_suspend(struct early_suspend *h)
 	kpd_resume_check = false;
 	avr_data.suspended=1;
 	key_clear(avr_data.client);
-	led_off(avr_data.client);
+	//led_off(avr_data.client);
 	disable_irq(avr_data.client->irq);
 	low_power_mode(avr_data.client, 1);
 
