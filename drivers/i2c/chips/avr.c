@@ -375,7 +375,7 @@ static void avr_early_suspend(struct early_suspend *h)
 	kpd_resume_check = false;
 	avr_data.suspended=1;
 	key_clear(avr_data.client);
-	//led_off(avr_data.client);
+	//led_off(avr_data.client); //blink to fixed softkey led patch
 	disable_irq(avr_data.client->irq);
 	low_power_mode(avr_data.client, 1);
 
@@ -804,10 +804,10 @@ static void avr_vib_work_func(struct work_struct *work) {
 //Blinking code
 
 static struct delayed_work blink_wq;
-static int status=0;
+//static int status=0; //blink to fixed softkey led patch
 
 void avr_blink(int value) {
-	status=0;
+	//status=0; //blink to fixed softkey led patch
 	if(value) {
 		if(avr_data.suspended)
 			low_power_mode(avr_data.client, 0);
@@ -826,16 +826,16 @@ void avr_blink(int value) {
 }
 
 static void blink_work_func(struct work_struct *work) {
-	status=!status;
+	/* status=!status;
 	if(status) {
-		printk("Blink turning on\n");
+		printk("Blink turning on\n"); */ //blink to fixed softkey led patch
 		led_on(avr_data.client);
-		schedule_delayed_work(&blink_wq, msecs_to_jiffies(500));
+		/* schedule_delayed_work(&blink_wq, msecs_to_jiffies(500));
 	} else {
 		printk("Blink turning off\n");
 		led_off(avr_data.client);
 		schedule_delayed_work(&blink_wq, msecs_to_jiffies(4500));
-	}
+	} */ //blink to fixed softkey led patch
 }
 
 static int __init avr_init(void)
