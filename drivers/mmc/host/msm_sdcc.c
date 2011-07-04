@@ -1004,7 +1004,18 @@ msmsdcc_request(struct mmc_host *mmc, struct mmc_request *mrq)
 		g_IS_SD_CMD25 = 1;
 #endif
 
-	spin_lock_irqsave(&host->lock, flags);
+spin_lock_irqsave(&host->lock, flags);
+
+   /*
+   * Enable clocks for SDIO clients if they are already turned off
+   * as part of their low-power management.
+   */
+  if (mmc->card && (mmc->card->type == MMC_TYPE_SDIO) && !host->clks_on) {
+    mmc->ios.clock = host->clk_rate;
+    spin_unlock(&host->lock);
+    mmc->ops->set_ios(host->mmc, &host->mmc->ios);
+    spin_lock(&host->lock);
+}
 
 	if (host->eject) {
 		if (mrq->data && !(mrq->data->flags & MMC_DATA_READ)) {
