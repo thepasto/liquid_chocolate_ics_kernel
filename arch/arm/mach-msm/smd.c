@@ -499,7 +499,6 @@ static void handle_smd_irq(struct list_head *list, void (*notify)(void))
 {
 	unsigned long flags;
 	struct smd_channel *ch;
-	int do_notify = 0;
 	unsigned ch_flags;
 	unsigned tmp;
 
@@ -510,17 +509,14 @@ static void handle_smd_irq(struct list_head *list, void (*notify)(void))
 			if (ch->recv->fHEAD) {
 				ch->recv->fHEAD = 0;
 				ch_flags |= 1;
-				do_notify |= 1;
 			}
 			if (ch->recv->fTAIL) {
 				ch->recv->fTAIL = 0;
 				ch_flags |= 2;
-				do_notify |= 1;
 			}
 			if (ch->recv->fSTATE) {
 				ch->recv->fSTATE = 0;
 				ch_flags |= 4;
-				do_notify |= 1;
 			}
 		}
 		tmp = ch->recv->state;
@@ -531,8 +527,6 @@ static void handle_smd_irq(struct list_head *list, void (*notify)(void))
 			ch->notify(ch->priv, SMD_EVENT_DATA);
 		}
 	}
-	if (do_notify)
-		notify();
 	spin_unlock_irqrestore(&smd_lock, flags);
 	do_smd_probe();
 }
