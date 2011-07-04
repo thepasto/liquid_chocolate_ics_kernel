@@ -76,7 +76,11 @@
 #endif
 
 #define MSM_USB_BASE	(dev->regs)
+#if defined(CONFIG_MACH_ACER_A1)
+#define is_host()	0 /* A1 do not support HOST mode */
+#else
 #define is_host()	((OTGSC_ID & readl(USB_OTGSC)) ? 0 : 1)
+#endif
 #define is_b_sess_vld()	((OTGSC_BSV & readl(USB_OTGSC)) ? 1 : 0)
 #define DRIVER_NAME	"msm_otg"
 
@@ -178,7 +182,6 @@ static void disable_sess_valid(struct msm_otg *dev)
 	writel(readl(USB_OTGSC) & ~OTGSC_BSVIE, USB_OTGSC);
 }
 
-
 static int msm_otg_set_clk(struct otg_transceiver *xceiv, int on)
 {
 	struct msm_otg *dev = container_of(xceiv, struct msm_otg, otg);
@@ -196,30 +199,13 @@ static int msm_otg_set_clk(struct otg_transceiver *xceiv, int on)
 }
 static void msm_otg_start_peripheral(struct otg_transceiver *xceiv, int on)
 {
-	struct msm_otg *dev = container_of(xceiv, struct msm_otg, otg);
 	if (!xceiv->gadget)
 		return;
 
-	if (on) {
-		/* increment the clk reference count so that
-		 * it would be still on when disabled from
-		 * low power mode routine
-		 */
-		if (dev->pclk_required_during_lpm)
-			clk_enable(dev->pclk);
-
+	if (on)
 		usb_gadget_vbus_connect(xceiv->gadget);
-	} else {
-		atomic_set(&dev->chg_type, USB_CHG_TYPE__INVALID);
-
+	else
 		usb_gadget_vbus_disconnect(xceiv->gadget);
-		/* decrement the clk reference count so that
-		 * it would be off when disabled from
-		 * low power mode routine
-		 */
-		if (dev->pclk_required_during_lpm)
-			clk_disable(dev->pclk);
-	}
 }
 
 static void msm_otg_start_host(struct otg_transceiver *xceiv, int on)
@@ -239,7 +225,7 @@ static int msm_otg_suspend(struct msm_otg *dev)
 {
 	unsigned long timeout;
 	int vbus = 0;
-	enum chg_type chg_type = atomic_read(&dev->chg_type);
+	unsigned otgsc;
 
 	not_done = 0;
 	disable_irq(dev->irq);
@@ -250,10 +236,21 @@ static int msm_otg_suspend(struct msm_otg *dev)
 	if (!is_host())
 		otg_reset(dev);
 
+	/* In case of fast plug-in and plug-out inside the otg_reset() the
+	 * servicing of BSV is missed (in the window of after phy and link
+	 * reset). Handle it if any missing bsv is detected */
+	if (is_b_sess_vld() && !is_host()) {
+		otgsc = readl(USB_OTGSC);
+		writel(otgsc, USB_OTGSC);
+		pr_info("%s:Process mising BSV\n", __func__);
+		msm_otg_start_peripheral(&dev->otg, 1);
+		enable_irq(dev->irq);
+		return -1;
+	}
 
 	ulpi_read(dev, 0x14);/* clear PHY interrupt latch register */
 	/* If there is no pmic notify support turn on phy comparators. */
-	if (!dev->pmic_notif_supp || chg_type == USB_CHG_TYPE__WALLCHARGER)
+	if (!dev->pmic_notif_supp)
 		ulpi_write(dev, 0x01, 0x30);
 	ulpi_write(dev, 0x08, 0x09);/* turn off PLL on integrated phy */
 
@@ -266,10 +263,6 @@ static int msm_otg_suspend(struct msm_otg *dev)
 			goto out;
 		}
 		msleep(1);
-		if (((readl(USB_OTGSC) & OTGSC_INTR_MASK) >> 8) &
-				readl(USB_OTGSC)) {
-			goto out;
-		}
 	}
 
 	writel(readl(USB_USBCMD) | ASYNC_INTR_CTRL | ULPI_STP_CTRL, USB_USBCMD);
@@ -399,10 +392,10 @@ static int msm_otg_set_peripheral(struct otg_transceiver *xceiv,
 		dev->pmic_register_vbus_sn(&msm_otg_set_vbus_state);
 	pr_info("peripheral driver registered w/ tranceiver\n");
 
-	if (is_host())
-		msm_otg_start_host(&dev->otg, 1);
-	else if (is_b_sess_vld())
+	if (is_b_sess_vld())
 		msm_otg_start_peripheral(&dev->otg, 1);
+	else if (is_host())
+		msm_otg_start_host(&dev->otg, 1);
 	else
 		msm_otg_suspend(dev);
 
@@ -570,7 +563,6 @@ static int __init msm_otg_probe(struct platform_device *pdev)
 		dev->pmic_register_vbus_sn = pdata->pmic_register_vbus_sn;
 		dev->pmic_unregister_vbus_sn = pdata->pmic_unregister_vbus_sn;
 		dev->pmic_enable_ldo = pdata->pmic_enable_ldo;
-		dev->pclk_required_during_lpm = pdata->pclk_required_during_lpm;
 	}
 
 	if (pdata && pdata->pmic_vbus_irq) {
@@ -599,7 +591,7 @@ static int __init msm_otg_probe(struct platform_device *pdev)
 		goto rpc_fail;
 	}
 	dev->pclk = clk_get(&pdev->dev, "usb_hs_pclk");
-	if (IS_ERR(dev->pclk)) {
+	if (IS_ERR(dev->clk)) {
 		pr_err("%s: failed to get usb_hs_pclk\n", __func__);
 		ret = PTR_ERR(dev->pclk);
 		goto put_clk;
@@ -732,6 +724,7 @@ static int __exit msm_otg_remove(struct platform_device *pdev)
 	return 0;
 }
 
+#if !defined(__a1_fet__)
 static int usb_platform_suspend(struct platform_device *pdev, pm_message_t state)
 {
 	struct msm_otg *dev = the_msm_otg;
@@ -838,11 +831,14 @@ static int usb_platform_resume(struct platform_device *pdev)
 	}
 	return 0;
 }
+#endif
 
 static struct platform_driver msm_otg_driver = {
 	.remove = __exit_p(msm_otg_remove),
+#if !defined(__a1_fet__)
 	.suspend = usb_platform_suspend,
 	.resume = usb_platform_resume,
+#endif
 	.driver = {
 		.name = DRIVER_NAME,
 		.owner = THIS_MODULE,
