@@ -68,7 +68,7 @@ MODULE_LICENSE("GPL");
 MODULE_VERSION("1.0");
 
 /* product id */
-static u16 product_id = 0x3223;
+static u16 product_id = 0x3203;
 static int android_set_pid(const char *val, struct kernel_param *kp);
 static int android_get_pid(char *buffer, struct kernel_param *kp);
 module_param_call(product_id, android_set_pid, android_get_pid,
@@ -290,6 +290,8 @@ static struct usb_configuration android_config_driver = {
 	.label		= "android",
 	.bind		= android_bind_config,
 	.bConfigurationValue = 1,
+	.bmAttributes	= (USB_CONFIG_ATT_ONE | USB_CONFIG_ATT_SELFPOWER |
+				USB_CONFIG_ATT_WAKEUP),
 	.bMaxPower	= 0xFA, /* 500ma */
 };
 
@@ -298,7 +300,9 @@ static int android_unbind(struct usb_composite_dev *cdev)
 	if (acm_func_cnt || gser_func_cnt)
 		gserial_cleanup();
 #if defined(CONFIG_USB_ANDROID_CDC_ECM) || defined(CONFIG_USB_ANDROID_RNDIS)
+#ifndef CONFIG_MACH_ACER_A1
 	gether_cleanup();
+#endif //#ifndef CONFIG_MACH_ACER_A1f
 #endif
 
 	return 0;
@@ -344,16 +348,28 @@ static int  android_bind(struct usb_composite_dev *cdev)
 	device_desc.idProduct = __constant_cpu_to_le16(product_id);
 	if (gadget->ops->wakeup)
 		android_config_driver.bmAttributes |= USB_CONFIG_ATT_WAKEUP;
-	if (dev->pdata->self_powered && !usb_gadget_set_selfpowered(gadget))
-		android_config_driver.bmAttributes |= USB_CONFIG_ATT_SELFPOWER;
+
 	dev->cdev = cdev;
 	dev->gadget = gadget;
 
 #if defined(CONFIG_USB_ANDROID_CDC_ECM) || defined(CONFIG_USB_ANDROID_RNDIS)
 	/* set up network link layer */
+#ifdef CONFIG_MACH_ACER_A1
+	{
+		static int x=0;
+		if(!x){
+			x++;
+			ret = gether_setup(cdev->gadget, hostaddr);
+			if (ret < 0)
+				return ret;
+		}
+	}
+#else
 	ret = gether_setup(cdev->gadget, hostaddr);
 	if (ret < 0)
 		return ret;
+#endif //CONFIG_MACH_ACER_A1
+
 #endif
 
 	/* register our configuration */
@@ -379,6 +395,7 @@ static int  android_bind(struct usb_composite_dev *cdev)
 		device_desc.bcdDevice = __constant_cpu_to_le16(0x9999);
 	}
 
+	usb_gadget_set_selfpowered(gadget);
 	num_ports = acm_func_cnt + gser_func_cnt;
 	if (acm_func_cnt || gser_func_cnt) {
 		ret = gserial_setup(cdev->gadget, num_ports);
@@ -691,6 +708,11 @@ module_init(init);
 
 static void __exit cleanup(void)
 {
+#ifdef CONFIG_MACH_ACER_A1
+#if defined(CONFIG_USB_ANDROID_CDC_ECM) || defined(CONFIG_USB_ANDROID_RNDIS)
+	gether_cleanup();
+#endif
+#endif //CONFIG_MACH_ACER_A1
 	usb_composite_unregister(&android_usb_driver);
 	misc_deregister(&adb_enable_device);
 	platform_driver_unregister(&android_platform_driver);
