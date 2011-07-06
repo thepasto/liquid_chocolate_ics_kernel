@@ -375,11 +375,14 @@ static void avr_early_suspend(struct early_suspend *h)
 	kpd_resume_check = false;
 	avr_data.suspended=1;
 	key_clear(avr_data.client);
-	//led_off(avr_data.client); //blink to fixed softkey led patch
+
+	mdelay(10);
+
 	disable_irq(avr_data.client->irq);
 	low_power_mode(avr_data.client, 1);
 
 	pr_debug("[AVR] %s -- leaving\n", __FUNCTION__);
+	led_on(avr_data.client); //blink to fixed softkey led patch
 }
 
 static void avr_early_resume(struct early_suspend *h)
