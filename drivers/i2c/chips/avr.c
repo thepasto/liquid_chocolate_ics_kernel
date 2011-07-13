@@ -84,7 +84,7 @@
 #define SENSITIVITY               50
 
 /* Vibrator */
-#define VIB_DELAY_TIME        30
+//#define VIB_DELAY_TIME        30
 void pmic_vibrator_on(struct work_struct *work);
 void pmic_vibrator_off(struct work_struct *work);
 
@@ -120,6 +120,7 @@ static struct mutex avr_mutex;
 static struct delayed_work led_wq;
 static struct delayed_work vib_wq;
 
+static int VIB_DELAY_TIME = 30;
 static int vibr=1;
 module_param(vibr, int, S_IRUGO | S_IWUSR | S_IWGRP);
 
@@ -207,6 +208,17 @@ static ssize_t set_avr_sensitivity(struct device *device,
 
 static struct device_attribute avr_attrs =
 __ATTR(threshold, S_IRWXUGO,NULL, set_avr_sensitivity);
+
+static ssize_t set_avr_vibr(struct device *device,
+struct device_attribute *attr,
+const char *buf, size_t count)
+{
+VIB_DELAY_TIME = ts_atoi(buf);
+pr_info("[AVR] Vibr = %d\n",ts_atoi(buf));
+return count;
+}
+static struct device_attribute avr_vibr_attrs =
+__ATTR(vibr, S_IRWXUGO,NULL, set_avr_vibr);
 
 static ssize_t get_avr_firmware(struct device *dev, struct device_attribute *attr,
              char *buf)
@@ -339,6 +351,9 @@ static int avr_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	if(device_create_file(&client->dev, &avr_attrs))
 		pr_err("[AVR] device_create_file avr_attrs error \n");
 
+	if(device_create_file(&client->dev, &avr_vibr_attrs))
+		pr_err("[AVR] device_create_file avr_vibr_attrs error \n");
+		
 	if(device_create_file(&client->dev, &avr_fw_attrs))
 		pr_err("[AVR] device_create_file avr_fw_attrs error \n");
 #endif
