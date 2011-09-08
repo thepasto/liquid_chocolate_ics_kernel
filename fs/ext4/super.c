@@ -3723,6 +3723,58 @@ const struct file_operations ext4_ui_proc_fops = {
 };
 #endif
 
+#if !defined(CONTIG_EXT2_FS) && defined(CONFIG_EXT4_USE_FOR_EXT23)
+static struct file_system_type ext2_fs_type = {
+	.owner		= THIS_MODULE,
+	.name		= "ext2",
+	.get_sb		= ext4_get_sb,
+	.kill_sb	= kill_block_super,
+	.fs_flags	= FS_REQUIRES_DEV,
+};
+
+static inline void register_as_ext2(void)
+{
+	int err = register_filesystem(&ext2_fs_type);
+	if (err)
+		printk(KERN_WARNING
+		       "EXT4-fs: Unable to register as ext2 (%d)\n", err);
+}
+
+static inline void unregister_as_ext2(void)
+{
+	unregister_filesystem(&ext2_fs_type);
+}
+#else
+static inline void register_as_ext2(void) { }
+static inline void unregister_as_ext2(void) { }
+#endif
+
+#if !defined(CONTIG_EXT3_FS) && defined(CONFIG_EXT4_USE_FOR_EXT23)
+static struct file_system_type ext3_fs_type = {
+	.owner		= THIS_MODULE,
+	.name		= "ext3",
+	.get_sb		= ext4_get_sb,
+	.kill_sb	= kill_block_super,
+	.fs_flags	= FS_REQUIRES_DEV,
+};
+
+static inline void register_as_ext3(void)
+{
+	int err = register_filesystem(&ext3_fs_type);
+	if (err)
+		printk(KERN_WARNING
+		       "EXT4-fs: Unable to register as ext3 (%d)\n", err);
+}
+
+static inline void unregister_as_ext3(void)
+{
+	unregister_filesystem(&ext3_fs_type);
+}
+#else
+static inline void register_as_ext3(void) { }
+static inline void unregister_as_ext3(void) { }
+#endif
+
 static struct file_system_type ext4_fs_type = {
 	.owner		= THIS_MODULE,
 	.name		= "ext4",
@@ -3767,6 +3819,8 @@ static int __init init_ext4_fs(void)
 	err = init_inodecache();
 	if (err)
 		goto out1;
+	register_as_ext2();
+	register_as_ext3();
 	err = register_filesystem(&ext4_fs_type);
 	if (err)
 		goto out;
@@ -3779,6 +3833,8 @@ static int __init init_ext4_fs(void)
 #endif
 	return 0;
 out:
+	unregister_as_ext2();
+	unregister_as_ext3();
 	destroy_inodecache();
 out1:
 	exit_ext4_xattr();
@@ -3789,6 +3845,8 @@ out2:
 
 static void __exit exit_ext4_fs(void)
 {
+	unregister_as_ext2();
+	unregister_as_ext3();
 	unregister_filesystem(&ext4_fs_type);
 #ifdef CONFIG_EXT4DEV_COMPAT
 	unregister_filesystem(&ext4dev_fs_type);
