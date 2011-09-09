@@ -79,6 +79,7 @@
 #include <asm/irq_regs.h>
 
 #include "sched_cpupri.h"
+#include "sched_autogroup.h"
 
 /*
  * Convert user-nice values [ -20 ... 0 ... 19 ]
@@ -368,19 +369,27 @@ struct task_group init_task_group;
 /* return group to which a task belongs */
 static inline struct task_group *task_group(struct task_struct *p)
 {
-	struct task_group *tg;
-
 #ifdef CONFIG_USER_SCHED
-	rcu_read_lock();
-	tg = __task_cred(p)->user->tg;
-	rcu_read_unlock();
+     struct task_group *tg;
+     tg = __task_cred(p)->user->tg;
+
+    return tg;
 #elif defined(CONFIG_CGROUP_SCHED)
-	tg = container_of(task_subsys_state(p, cpu_cgroup_subsys_id),
-				struct task_group, css);
+    struct task_group *tg;
+     struct cgroup_subsys_state *css;
+
+    css = task_subsys_state(p, cpu_cgroup_subsys_id);
+
+    tg = container_of(css, struct task_group, css);
+
+    return autogroup_task_group(p, tg);
 #else
-	tg = &init_task_group;
+    struct task_group *tg;
+
+    tg = &init_task_group;
+
+    return tg;
 #endif
-	return tg;
 }
 
 /* Change a task's cfs_rq and parent entity if it moves across CPUs/groups */
@@ -1664,6 +1673,7 @@ static void cfs_rq_set_shares(struct cfs_rq *cfs_rq, unsigned long shares)
 #include "sched_idletask.c"
 #include "sched_fair.c"
 #include "sched_rt.c"
+#include "sched_autogroup.c"
 #ifdef CONFIG_SCHED_DEBUG
 # include "sched_debug.c"
 #endif
@@ -8558,7 +8568,8 @@ void __init sched_init(void)
 #ifdef CONFIG_GROUP_SCHED
 	list_add(&init_task_group.list, &task_groups);
 	INIT_LIST_HEAD(&init_task_group.children);
-
+	
+	autogroup_init(&init_task);
 #ifdef CONFIG_USER_SCHED
 	INIT_LIST_HEAD(&root_task_group.children);
 	init_task_group.parent = &root_task_group;
@@ -9089,15 +9100,11 @@ void sched_destroy_group(struct task_group *tg)
 /* change task's runqueue when it moves between groups.
  *	The caller of this function should have put the task in its new group
  *	by now. This function just updates tsk->se.cfs_rq and tsk->se.parent to
- *	reflect its new group.
+ *	reflect its new group. Called with the runqueue lock held.
  */
-void sched_move_task(struct task_struct *tsk)
+void __sched_move_task(struct task_struct *tsk, struct rq *rq)
 {
 	int on_rq, running;
-	unsigned long flags;
-	struct rq *rq;
-
-	rq = task_rq_lock(tsk, &flags);
 
 	update_rq_clock(rq);
 
@@ -9123,6 +9130,18 @@ void sched_move_task(struct task_struct *tsk)
 
 	task_rq_unlock(rq, &flags);
 }
+
+void sched_move_task(struct task_struct *tsk)
+{
+	struct rq *rq;
+	unsigned long flags;
+
+	rq = task_rq_lock(tsk, &flags);
+	__sched_move_task(tsk, rq);
+
+	task_rq_unlock(rq, &flags);
+}
+
 #endif /* CONFIG_GROUP_SCHED */
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
