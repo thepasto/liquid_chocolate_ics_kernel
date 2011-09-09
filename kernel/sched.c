@@ -9127,9 +9127,7 @@ void __sched_move_task(struct task_struct *tsk, struct rq *rq)
 		tsk->sched_class->set_curr_task(rq);
 	if (on_rq)
 		enqueue_task(rq, tsk, 0);
-
-	task_rq_unlock(rq, &flags);
-}
+	}
 
 void sched_move_task(struct task_struct *tsk)
 {

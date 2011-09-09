@@ -365,6 +365,7 @@ static struct ctl_table kern_table[] = {
 		.extra1		= &zero,
 		.extra2		= &one,
 	},
+#endif
 #ifdef CONFIG_PROVE_LOCKING
 	{
 		.ctl_name	= CTL_UNNUMBERED,
