@@ -91,24 +91,15 @@ module_param_named(
 			smsm_get_state(SMSM_APPS_DEM)); \
 	} while (0)
 
-
 #define MSM_PM_DEBUG_PRINT_SLEEP_INFO() \
 	do { \
 		if (msm_pm_debug_mask & MSM_PM_DEBUG_SMSM_STATE) \
-	        { \
-	                smsm_print_sleep_info(msm_pm_smem_data->sleep_time, \
-		        msm_pm_smem_data->resources_used, \
-		        msm_pm_smem_data->irq_mask, \
-		        msm_pm_smem_data->wakeup_reason, \
-		        msm_pm_smem_data->pending_irqs); \
-		        printk(KERN_INFO "smd_port_name = %s, " \
-		                         "rpc_prog %x, " \
-		                         "rpc_proc %x\n",  \
-		        msm_pm_smem_data->smd_port_name, \
-		        msm_pm_smem_data->rpc_prog, \
-		        msm_pm_smem_data->rpc_proc); \
-		} \
-        } while (0)
+			smsm_print_sleep_info(msm_pm_smem_data->sleep_time, \
+				msm_pm_smem_data->resources_used, \
+				msm_pm_smem_data->irq_mask, \
+				msm_pm_smem_data->wakeup_reason, \
+				msm_pm_smem_data->pending_irqs); \
+	} while (0)
 
 
 /******************************************************************************
@@ -158,10 +149,6 @@ static struct kobject *msm_pm_mode_kobjs[MSM_PM_SLEEP_MODE_NR];
 static struct attribute_group *msm_pm_mode_attr_group[MSM_PM_SLEEP_MODE_NR];
 static struct attribute **msm_pm_mode_attrs[MSM_PM_SLEEP_MODE_NR];
 static struct kobj_attribute *msm_pm_mode_kobj_attrs[MSM_PM_SLEEP_MODE_NR];
-
-#ifdef CONFIG_MACH_ACER_A1
-static acer_smem_flag_t *acer_smem_flag;
-#endif
 
 /*
  * Write out the attribute.
@@ -592,10 +579,6 @@ void msm_pm_set_max_sleep_time(int64_t max_sleep_time_ns)
 	MSM_PM_DPRINTK(MSM_PM_DEBUG_SUSPEND, KERN_INFO,
 		"%s(): Requested %lld ns Giving %u sclk ticks\n", __func__,
 		max_sleep_time_ns, msm_pm_max_sleep_time);
-
-	pr_info("%s(): Requested %lld ns Giving %u sclk ticks\n", __func__,
-		max_sleep_time_ns, msm_pm_max_sleep_time);
-
 	local_irq_restore(flags);
 }
 EXPORT_SYMBOL(msm_pm_set_max_sleep_time);
@@ -974,15 +957,6 @@ static int msm_pm_power_collapse
 	MSM_PM_DEBUG_PRINT_STATE("msm_pm_power_collapse(): PWRC");
 	MSM_PM_DEBUG_PRINT_SLEEP_INFO();
 
-	pr_info("SMEM_SMSM_INT_INFO %x %x %x\n",
-		msm_pm_smem_data->irq_mask,
-		msm_pm_smem_data->pending_irqs,
-		msm_pm_smem_data->wakeup_reason);
-	pr_info("smd_port_name = %s, rpc_prog %x, rpc_proc %x\n",
-		msm_pm_smem_data->smd_port_name,
-		msm_pm_smem_data->rpc_prog,
-		msm_pm_smem_data->rpc_proc);
-
 	memset(state_grps, 0, sizeof(state_grps));
 	state_grps[0].group_id = SMSM_POWER_MASTER_DEM;
 	state_grps[0].bits_all_set = DEM_MASTER_SMSM_RSA;
@@ -1033,10 +1007,6 @@ static int msm_pm_power_collapse
 		goto power_collapse_early_exit;
 	}
 
-#ifdef CONFIG_MACH_ACER_A1
-	acer_smem_flag->acer_os_pwr_state = (from_idle)?ACER_OS_IDLE_MODE:ACER_OS_SUSPEND_MODE;
-#endif
-
 	saved_vector[0] = msm_pm_reset_vector[0];
 	saved_vector[1] = msm_pm_reset_vector[1];
 	msm_pm_reset_vector[0] = 0xE51FF004; /* ldr pc, 4 */
@@ -1081,11 +1051,6 @@ static int msm_pm_power_collapse
 	MSM_PM_DPRINTK(MSM_PM_DEBUG_CLOCK, KERN_INFO,
 		"%s(): restore clock rate to %lu\n", __func__,
 		saved_acpuclk_rate);
-
-#ifdef CONFIG_MACH_ACER_A1
-	acer_smem_flag->acer_os_pwr_state = ACER_OS_NORMAL_MODE;
-#endif
-
 	if (acpuclk_set_rate(saved_acpuclk_rate, SETRATE_PC) < 0)
 		printk(KERN_ERR "%s(): failed to restore clock rate(%lu)\n",
 			__func__, saved_acpuclk_rate);
@@ -1166,15 +1131,6 @@ static int msm_pm_power_collapse
 
 	MSM_PM_DEBUG_PRINT_STATE("msm_pm_power_collapse(): WFPI RUN");
 	MSM_PM_DEBUG_PRINT_SLEEP_INFO();
-
-	pr_info("SMEM_SMSM_INT_INFO %x %x %x\n",
-		msm_pm_smem_data->irq_mask,
-		msm_pm_smem_data->pending_irqs,
-		msm_pm_smem_data->wakeup_reason);
-	pr_info("smd_port_name = %s, rpc_prog %x, rpc_proc %x\n",
-		msm_pm_smem_data->smd_port_name,
-		msm_pm_smem_data->rpc_prog,
-		msm_pm_smem_data->rpc_proc);
 
 	msm_irq_exit_sleep2(msm_pm_smem_data->irq_mask,
 		msm_pm_smem_data->wakeup_reason,
@@ -1696,36 +1652,14 @@ static void msm_pm_power_off(void)
 {
 	msm_rpcrouter_close();
 	msm_proc_comm(PCOM_POWER_DOWN, 0, 0);
-	for (;;){
+	for (;;)
 		;
-	}
 }
 
 static void msm_pm_restart(char str)
 {
-#ifdef CONFIG_MACH_ACER_A1
-	unsigned id = 8;	//ACER_SMSM_PROC_CMD_SD_DOWNLOAD
-	unsigned id1 = 0;	//ACER_SDDL_ALL
-	unsigned id2 = 1;	//ACER_SDDL_AMSS_ONLY
-	unsigned id3 = 2;	//ACER_SDDL_OS_ONLY
-
 	msm_rpcrouter_close();
-	if (restart_reason==0x77665503) {
-		pr_debug(KERN_ERR "%s: update_all\n", __func__);
-		msm_proc_comm(PCOM_CUSTOMER_CMD1, &id, &id1);
-	} else if (restart_reason==0x77665504) {
-		pr_debug(KERN_ERR "%s: update_amss\n", __func__);
-		msm_proc_comm(PCOM_CUSTOMER_CMD1, &id, &id2);
-	} else if (restart_reason==0x77665505) {
-		pr_debug(KERN_ERR "%s: update_os\n", __func__);
-		msm_proc_comm(PCOM_CUSTOMER_CMD1, &id, &id3);
-	} else {
-		msm_proc_comm(PCOM_RESET_CHIP_IMM, &restart_reason, 0);
-	}
-#else
-	msm_rpcrouter_close();
-	msm_proc_comm(PCOM_RESET_CHIP, &restart_reason, 0);
-#endif //CONFIG_MACH_ACER_A1
+	msm_proc_comm(PCOM_RESET_CHIP_IMM, &restart_reason, 0);
 
 	for (;;)
 		;
@@ -1740,14 +1674,6 @@ static int msm_reboot_call
 			restart_reason = 0x77665500;
 		} else if (!strcmp(cmd, "recovery")) {
 			restart_reason = 0x77665502;
-#ifdef CONFIG_MACH_ACER_A1
-		} else if (!strcmp(cmd, "update_all")) {
-			restart_reason = 0x77665503;
-		} else if (!strcmp(cmd, "update_amss")) {
-			restart_reason = 0x77665504;
-		} else if (!strcmp(cmd, "update_os")) {
-			restart_reason = 0x77665505;
-#endif
 		} else if (!strcmp(cmd, "eraseflash")) {
 			restart_reason = 0x776655EF;
 		} else if (!strncmp(cmd, "oem-", 4)) {
@@ -1782,11 +1708,6 @@ static int __init msm_pm_init(void)
 	struct proc_dir_entry *d_entry;
 #endif
 	int ret;
-
-#ifdef CONFIG_MACH_ACER_A1
-	acer_smem_flag = smem_alloc(SMEM_ID_VENDOR0, sizeof(acer_smem_flag_t));
-	acer_smem_flag->acer_os_pwr_state = ACER_OS_NORMAL_MODE;
-#endif
 
 	pm_power_off = msm_pm_power_off;
 	arm_pm_restart = msm_pm_restart;
