@@ -3070,7 +3070,7 @@ static struct mmc_platform_data qsd8x50_sdc1_data = {
 
 #if defined(CONFIG_MMC_WIFI) || defined(CONFIG_MMC_WIFI_MODULE)
 static struct mmc_platform_data qsd8x50_sdcc2_wifi = {
-    .ocr_mask = MMC_VDD_27_28 | MMC_VDD_28_29,
+    .ocr_mask = MMC_VDD_20_21, //MMC_VDD_27_28 | MMC_VDD_28_29,
     .translate_vdd = msm_sdcc_setup_power,
     .register_status_notify = wifi_status_register,
     .embedded_sdio = &bcm_wifi_emb_data,
@@ -3080,7 +3080,7 @@ static struct mmc_platform_data qsd8x50_sdcc2_wifi = {
 
 #ifdef CONFIG_MMC_MSM_SDC2_SUPPORT
 static struct mmc_platform_data qsd8x50_sdc2_data = {
-	.ocr_mask       = MMC_VDD_27_28 | MMC_VDD_28_29,
+	.ocr_mask       = MMC_VDD_20_21,//MMC_VDD_27_28 | MMC_VDD_28_29,
 	.translate_vdd  = msm_sdcc_setup_power,
 	.mmc_bus_width  = MMC_CAP_4_BIT_DATA,
 	.wpswitch	= msm_sdcc_get_wpswitch,
