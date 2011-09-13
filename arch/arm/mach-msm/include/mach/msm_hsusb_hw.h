@@ -46,7 +46,12 @@
 #define USB_AHB_BURST        (MSM_USB_BASE + 0x0090)
 #define USB_AHB_MODE         (MSM_USB_BASE + 0x0098)
 #define USB_ROC_AHB_MODE     (MSM_USB_BASE + 0x0090)
+#ifdef CONFIG_ARCH_MSM7X00A
 #define USB_SBUSCFG          (MSM_USB_BASE + 0x0090)
+#else
+#define USB_AHBBURST         (MSM_USB_BASE + 0x0090)
+#define USB_AHBMODE          (MSM_USB_BASE + 0x0098)
+#endif
 
 #define USB_CAPLENGTH        (MSM_USB_BASE + 0x0100) /* 8 bit */
 #define USB_HCIVERSION       (MSM_USB_BASE + 0x0102) /* 16 bit */
