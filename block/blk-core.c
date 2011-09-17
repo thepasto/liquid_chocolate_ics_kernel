@@ -1858,7 +1858,7 @@ static void end_that_request_last(struct request *req, int error)
 unsigned int blk_rq_bytes(struct request *rq)
 {
 	if (blk_fs_request(rq))
-		return rq->hard_nr_sectors << 9;
+		return blk_rq_sectors(rq) << 9;
 
 	return rq->data_len;
 }

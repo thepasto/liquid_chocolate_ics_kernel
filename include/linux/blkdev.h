@@ -837,12 +837,29 @@ extern void blk_update_request(struct request *rq, int error,
 			       unsigned int nr_bytes);
 
 /*
- * blk_end_request() takes bytes instead of sectors as a complete size.
- * blk_rq_bytes() returns bytes left to complete in the entire request.
- * blk_rq_cur_bytes() returns bytes left to complete in the current segment.
+ * blk_rq_pos()		: the current sector
+ * blk_rq_bytes()	: bytes left in the entire request
+ * blk_rq_cur_bytes()	: bytes left in the current segment
+ * blk_rq_sectors()	: sectors left in the entire request
+ * blk_rq_cur_sectors()	: sectors left in the current segment
  */
+static inline sector_t blk_rq_pos(const struct request *rq)
+{
+	return rq->hard_sector;
+}
+
 extern unsigned int blk_rq_bytes(struct request *rq);
 extern unsigned int blk_rq_cur_bytes(struct request *rq);
+
+static inline unsigned int blk_rq_sectors(const struct request *rq)
+{
+	return rq->hard_nr_sectors;
+}
+
+static inline unsigned int blk_rq_cur_sectors(const struct request *rq)
+{
+	return rq->hard_cur_sectors;
+}
 
 /*
  * Access functions for manipulating queue properties
