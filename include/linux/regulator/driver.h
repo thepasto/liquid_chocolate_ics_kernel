@@ -54,6 +54,9 @@ struct regulator_init_data;
  */
 struct regulator_ops {
 
+	/* enumerate supported voltages */
+	int (*list_voltage) (struct regulator_dev *, unsigned selector);
+
 	/* get/set regulator voltage */
 	int (*set_voltage) (struct regulator_dev *, int min_uV, int max_uV);
 	int (*get_voltage) (struct regulator_dev *);
@@ -114,6 +117,7 @@ enum regulator_type {
 struct regulator_desc {
 	const char *name;
 	int id;
+	unsigned n_voltages;
 	struct regulator_ops *ops;
 	int irq;
 	enum regulator_type type;
@@ -121,7 +125,8 @@ struct regulator_desc {
 };
 
 struct regulator_dev *regulator_register(struct regulator_desc *regulator_desc,
-	struct device *dev, void *driver_data);
+         struct device *dev, struct regulator_init_data *init_data,
+         void *driver_data);
 void regulator_unregister(struct regulator_dev *rdev);
 
 int regulator_notifier_call_chain(struct regulator_dev *rdev,
