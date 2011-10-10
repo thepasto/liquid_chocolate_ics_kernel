@@ -637,14 +637,8 @@ static int audio_set_table(struct audio_client *ac,
 
 	memset(&rpc, 0, sizeof(rpc));
 	rpc.hdr.opcode = ADSP_AUDIO_IOCTL_SET_DEVICE_CONFIG_TABLE;
-	if (q6_device_to_dir(device_id) == Q6_TX) {
-		if (tx_clk_freq > 16000)
-			rpc.hdr.data = 48000;
-		else if (tx_clk_freq > 8000)
-			rpc.hdr.data = 16000;
-		else
-			rpc.hdr.data = 8000;
-	}
+	if (q6_device_to_dir(device_id) == Q6_TX)
+		rpc.hdr.data = tx_clk_freq;
 	rpc.device_id = device_id;
 	rpc.phys_addr = audio_phys;
 	rpc.phys_size = size;
@@ -1097,12 +1091,10 @@ static void _audio_tx_path_enable(int reconf, uint32_t acdb_id)
 		adie_enable();
 		adie_set_path(adie, audio_tx_path_id, ADIE_PATH_TX);
 
-		if (tx_clk_freq > 16000)
-			adie_set_path_freq_plan(adie, ADIE_PATH_TX, 48000);
-		else if (tx_clk_freq > 8000)
-			adie_set_path_freq_plan(adie, ADIE_PATH_TX, 16000);
-		else
-			adie_set_path_freq_plan(adie, ADIE_PATH_TX, 8000);
+		 if (tx_clk_freq > 8000)
+				 adie_set_path_freq_plan(adie, ADIE_PATH_TX, 48000);
+		 else
+				 adie_set_path_freq_plan(adie, ADIE_PATH_TX, 8000);
 
 		adie_proceed_to_stage(adie, ADIE_PATH_TX,
 				ADIE_STAGE_DIGITAL_READY);
@@ -1187,20 +1179,12 @@ static void _audio_rx_clk_enable(void)
 static void _audio_tx_clk_enable(void)
 {
 	uint32_t device_group = q6_device_to_codec(audio_tx_device_id);
-	uint32_t icodec_tx_clk_rate;
 
 	switch (device_group) {
 	case Q6_ICODEC_TX:
 		icodec_tx_clk_refcount++;
 		if (icodec_tx_clk_refcount == 1) {
-			if (tx_clk_freq > 16000)
-				icodec_tx_clk_rate = 48000;
-			else if (tx_clk_freq > 8000)
-				icodec_tx_clk_rate = 16000;
-			else
-				icodec_tx_clk_rate = 8000;
-
-			clk_set_rate(icodec_tx_clk, icodec_tx_clk_rate * 256);
+			clk_set_rate(icodec_tx_clk, tx_clk_freq * 256);
 			clk_enable(icodec_tx_clk);
 		}
 		break;
@@ -1903,3 +1887,4 @@ int q6audio_async(struct audio_client *ac)
 	rpc.response_type = ADSP_AUDIO_RESPONSE_ASYNC;
 	return audio_ioctl(ac, &rpc, sizeof(rpc));
 }
+
