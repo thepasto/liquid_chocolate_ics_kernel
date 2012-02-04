@@ -122,29 +122,22 @@
 
 #define SMEM_SPINLOCK_I2C	"S:6"
 
-#define MSM_PMEM_ADSP_SIZE	0x2196000
-#define MSM_FB_SIZE		0x177000
-#define MSM_GPU_PHYS_SIZE 	SZ_2M
+#define MSM_PMEM_ADSP_SIZE	0x02196000
+#define MSM_PMEM_MDP_SIZE	0x01700000
+#define PMEM_KERNEL_EBI1_SIZE	0x00028000
 
-#ifdef CONFIG_MSM_SOC_REV_A
-#define MSM_SMI_BASE		0xE0000000
-#else
-#define MSM_SMI_BASE		0x00000000
-#endif
+#define MSM_SHARED_RAM_PHYS	0x00100000
 
-#define MSM_SHARED_RAM_PHYS	(MSM_SMI_BASE + 0x00100000)
+#define MSM_FB_BASE		0x02300000
+#define MSM_FB_SIZE		0x00177000
+
+#define MSM_GPU_PHYS_SIZE 	0x00200000
+#define MSM_GPU_PHYS_BASE 	0x02300000
 
 #define MODEM_SIZE		0x02300000
-#define MSM_PMEM_SMI_BASE	(MSM_SMI_BASE + MODEM_SIZE)
+
+#define MSM_PMEM_SMI_BASE	0x02300000
 #define MSM_PMEM_SMI_SIZE	0x01D00000
-
-#define MSM_GPU_PHYS_BASE 	MSM_PMEM_SMI_BASE
-#define MSM_PMEM_MDP_BASE	(MSM_GPU_PHYS_BASE + MSM_GPU_PHYS_SIZE)
-#define MSM_PMEM_MDP_SIZE	0x1700000
-#define MSM_PMEM_VENC_BASE	(MSM_PMEM_MDP_BASE + MSM_PMEM_MDP_SIZE)
-#define MSM_PMEM_VENC_SIZE	(MSM_PMEM_SMI_SIZE - MSM_GPU_PHYS_SIZE - MSM_PMEM_MDP_SIZE)
-
-#define PMEM_KERNEL_EBI1_SIZE	0x28000
 
 static DEFINE_MUTEX(wifibtmutex);
 
@@ -770,8 +763,6 @@ static struct android_pmem_platform_data android_pmem_kernel_smi_pdata = {
 
 static struct android_pmem_platform_data android_pmem_pdata = {
 	.name = "pmem",
-	.start = MSM_PMEM_MDP_BASE,
-	.size = MSM_PMEM_MDP_SIZE,
 	.allocator_type = PMEM_ALLOCATORTYPE_BITMAP,
 	.cached = 1,
 };
@@ -781,15 +772,6 @@ static struct android_pmem_platform_data android_pmem_adsp_pdata = {
 	.allocator_type = PMEM_ALLOCATORTYPE_BITMAP,
 	.cached = 0,
 };
-
-static struct android_pmem_platform_data android_pmem_smipool_pdata = {
-	.name = "pmem_smipool",
-	.start = MSM_PMEM_VENC_BASE,
-	.size = MSM_PMEM_VENC_SIZE,
-	.allocator_type = PMEM_ALLOCATORTYPE_BITMAP,
-	.cached = 0,
-};
-
 
 static struct platform_device android_pmem_device = {
 	.name = "android_pmem",
@@ -803,26 +785,11 @@ static struct platform_device android_pmem_adsp_device = {
 	.dev = { .platform_data = &android_pmem_adsp_pdata },
 };
 
-static struct platform_device android_pmem_smipool_device = {
-	.name = "android_pmem",
-	.id = 2,
-	.dev = { .platform_data = &android_pmem_smipool_pdata },
-};
-
-
 static struct platform_device android_pmem_kernel_ebi1_device = {
 	.name = "android_pmem",
 	.id = 3,
 	.dev = { .platform_data = &android_pmem_kernel_ebi1_pdata },
 };
-
-#ifdef CONFIG_KERNEL_PMEM_SMI_REGION
-static struct platform_device android_pmem_kernel_smi_device = {
-	.name = "android_pmem",
-	.id = 4,
-	.dev = { .platform_data = &android_pmem_kernel_smi_pdata },
-};
-#endif
 
 static struct resource msm_fb_resources[] = {
 	{
@@ -1921,43 +1888,56 @@ static void __init wlan_init(void)
 }
 #endif //def CONFIG_MACH_ACER_A1
 
-static struct resource kgsl_resources[] = {
+static struct resource kgsl_3d0_resources[] = {
        {
-		.name  = "kgsl_reg_memory",
+		.name  = KGSL_3D0_REG_MEMORY,
 		.start = 0xA0000000,
 		.end = 0xA001ffff,
 		.flags = IORESOURCE_MEM,
        },
        {
-		.name   = "kgsl_phys_memory",
-		.start = MSM_GPU_PHYS_BASE,
-		.end = MSM_GPU_PHYS_BASE + MSM_GPU_PHYS_SIZE - 1,
-		.flags = IORESOURCE_MEM,
-       },
-       {
-		.name = "kgsl_yamato_irq",
+		.name = KGSL_3D0_IRQ,
 		.start = INT_GRAPHICS,
 		.end = INT_GRAPHICS,
 		.flags = IORESOURCE_IRQ,
        },
 };
-static struct kgsl_platform_data kgsl_pdata = {
-	.high_axi_3d = 144000, /* Max for 8K */
-	.max_grp2d_freq = 128000000,
-	.min_grp2d_freq = 96000000,
-	.set_grp2d_async = NULL,
-	.max_grp3d_freq = 144000000,
-	.min_grp3d_freq = 128000000,
-	.set_grp3d_async = NULL,
+
+static struct kgsl_device_platform_data kgsl_3d0_pdata = {
+	.pwr_data = {
+		.pwrlevel = {
+			{
+				.gpu_freq = 128000000,
+				.bus_freq = 128000000,
+			},
+			{
+				.gpu_freq = 128000000,
+				.bus_freq = 0,
+			},
+		},
+		.init_level = 0,
+		.num_levels = 2,
+		.set_grp_async = NULL,
+		.idle_timeout = HZ/20,
+		.nap_allowed = true,
+	},
+	.clk = {
+		.name = {
+			.clk = "grp_clk",
+		},
+	},
+	.imem_clk_name = {
+		.clk = "imem_clk",
+	},
 };
 
-static struct platform_device msm_device_kgsl = {
-       .name = "kgsl",
-       .id = -1,
-       .num_resources = ARRAY_SIZE(kgsl_resources),
-       .resource = kgsl_resources,
+static struct platform_device msm_kgsl_3d0 = {
+       .name = "kgsl-3d0",
+       .id = 0,
+       .num_resources = ARRAY_SIZE(kgsl_3d0_resources),
+       .resource = kgsl_3d0_resources,
 	.dev = {
-		.platform_data = &kgsl_pdata,
+		.platform_data = &kgsl_3d0_pdata,
 	},
 };
 
@@ -2667,7 +2647,7 @@ static struct platform_device *devices[] __initdata = {
 #endif
 	&android_pmem_device,
 	&android_pmem_adsp_device,
-	&android_pmem_smipool_device,
+	//&android_pmem_smipool_device,
 	&msm_device_nand,
 	&msm_device_i2c,
 #ifdef CONFIG_QSD_SPI
@@ -2696,7 +2676,7 @@ static struct platform_device *devices[] __initdata = {
 	&msm_device_uart3,
 #endif
 	&msm_device_pmic_leds,
-	&msm_device_kgsl,
+	&msm_kgsl_3d0,
 #ifdef CONFIG_MSM_RPCSERVER_HANDSET
 	&hs_device,
 #endif
@@ -2734,12 +2714,12 @@ static void __init qsd8x50_init_irq(void)
 	msm_init_irq();
 	msm_init_sirc();
 }
-
+/*
 static void kgsl_phys_memory_init(void)
 {
 	request_mem_region(kgsl_resources[1].start,
 		resource_size(&kgsl_resources[1]), "kgsl");
-}
+}*/
 
 static void __init qsd8x50_init_usb(void)
 {
@@ -3362,7 +3342,7 @@ static void __init qsd8x50_init(void)
 				ARRAY_SIZE(msm_spi_board_info));
 #endif
 	msm_pm_set_platform_data(msm_pm_data);
-	kgsl_phys_memory_init();
+	//kgsl_phys_memory_init();
 
 #ifdef CONFIG_SURF_FFA_GPIO_KEYPAD
 	if (machine_is_qsd8x50_ffa() || machine_is_qsd8x50a_ffa())
@@ -3405,19 +3385,13 @@ static void __init qsd8x50_allocate_memory_regions(void)
 #endif
 
 	size = pmem_mdp_size;
-	if (size > MSM_PMEM_MDP_SIZE) {
-		printk(KERN_ERR "pmem(mdp) smi arena size %lu is too big\n",
-			size);
-
-		size = MSM_PMEM_MDP_SIZE;
+	if (size) {
+		addr = alloc_bootmem(size);
+		android_pmem_pdata.start = __pa(addr);
+		android_pmem_pdata.size = size;
+		pr_info("allocating %lu bytes at %p (%lx physical) for mdp "
+			"pmem arena\n", size, addr, __pa(addr));
 	}
-	android_pmem_pdata.start = MSM_PMEM_MDP_BASE;
-	android_pmem_pdata.size = size;
-
-	pr_info("allocating %lu bytes at %lx (%lx physical)"
-		"for pmem(mdp) smi arena\n", size,
-		(long unsigned int) MSM_PMEM_MDP_BASE,
-		__pa(MSM_PMEM_MDP_BASE));
 
 	size = pmem_adsp_size;
 	if (size) {
