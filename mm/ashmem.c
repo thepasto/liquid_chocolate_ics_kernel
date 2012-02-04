@@ -174,7 +174,7 @@ static int ashmem_open(struct inode *inode, struct file *file)
 	struct ashmem_area *asma;
 	int ret;
 
-	ret = generic_file_open(inode, file);
+	ret = nonseekable_open(inode, file);
 	if (unlikely(ret))
 		return ret;
 
@@ -206,73 +206,12 @@ static int ashmem_release(struct inode *ignored, struct file *file)
 	return 0;
 }
 
-static ssize_t ashmem_read(struct file *file, char __user *buf,
-                          size_t len, loff_t *pos)
-{
-       struct ashmem_area *asma = file->private_data;
-       int ret = 0;
-
-       mutex_lock(&ashmem_mutex);
-
-       /* If size is not set, or set to 0, always return EOF. */
-       if (asma->size == 0) {
-               goto out;
-        }
-
-       if (!asma->file) {
-               ret = -EBADF;
-               goto out;
-       }
-
-       ret = asma->file->f_op->read(asma->file, buf, len, pos);
-       if (ret < 0) {
-               goto out;
-       }
-
-       /** Update backing file pos, since f_ops->read() doesn't */
-       asma->file->f_pos = *pos;
-
-out:
-       mutex_unlock(&ashmem_mutex);
-       return ret;
-}
-
-static loff_t ashmem_llseek(struct file *file, loff_t offset, int origin)
-{
-       struct ashmem_area *asma = file->private_data;
-       int ret;
-
-       mutex_lock(&ashmem_mutex);
-
-       if (asma->size == 0) {
-               ret = -EINVAL;
-               goto out;
-       }
-
-       if (!asma->file) {
-               ret = -EBADF;
-               goto out;
-       }
-
-       ret = asma->file->f_op->llseek(asma->file, offset, origin);
-       if (ret < 0) {
-               goto out;
-       }
-
-       /** Copy f_pos from backing file, since f_ops->llseek() sets it */
-       file->f_pos = asma->file->f_pos;
-
-out:
-       mutex_unlock(&ashmem_mutex);
-       return ret;
-}
-
 static inline unsigned long
 calc_vm_may_flags(unsigned long prot)
 {
-       return _calc_vm_trans(prot, PROT_READ,  VM_MAYREAD ) |
-              _calc_vm_trans(prot, PROT_WRITE, VM_MAYWRITE) |
-              _calc_vm_trans(prot, PROT_EXEC,  VM_MAYEXEC);
+	return _calc_vm_trans(prot, PROT_READ,  VM_MAYREAD ) |
+	       _calc_vm_trans(prot, PROT_WRITE, VM_MAYWRITE) |
+	       _calc_vm_trans(prot, PROT_EXEC,  VM_MAYEXEC);
 }
 
 static int ashmem_mmap(struct file *file, struct vm_area_struct *vma)
@@ -289,8 +228,8 @@ static int ashmem_mmap(struct file *file, struct vm_area_struct *vma)
 	}
 
 	/* requested protection bits must match our allowed protection mask */
-       if (unlikely((vma->vm_flags & ~calc_vm_prot_bits(asma->prot_mask)) &
-                                               calc_vm_prot_bits(PROT_MASK))) {
+	if (unlikely((vma->vm_flags & ~calc_vm_prot_bits(asma->prot_mask)) &
+						calc_vm_prot_bits(PROT_MASK))) {
 		ret = -EPERM;
 		goto out;
 	}
@@ -664,12 +603,63 @@ static long ashmem_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	return ret;
 }
 
+static int is_ashmem_file(struct file *file)
+{
+	char fname[256], *name;
+	name = dentry_path(file->f_dentry, fname, 256);
+	return strcmp(name, "/ashmem") ? 0 : 1;
+}
+
+int get_ashmem_file(int fd, struct file **filp, struct file **vm_file,
+			unsigned long *len)
+{
+	int ret = -1;
+	struct file *file = fget(fd);
+	*filp = NULL;
+	*vm_file = NULL;
+	if (unlikely(file == NULL)) {
+		pr_err("ashmem: %s: requested data from file "
+			"descriptor that doesn't exist.\n", __func__);
+	} else {
+		char currtask_name[FIELD_SIZEOF(struct task_struct, comm) + 1];
+		pr_debug("filp %p rdev %d pid %u(%s) file %p(%ld)"
+			" dev id: %d\n", filp,
+			file->f_dentry->d_inode->i_rdev,
+			current->pid, get_task_comm(currtask_name, current),
+			file, file_count(file),
+			MINOR(file->f_dentry->d_inode->i_rdev));
+		if (is_ashmem_file(file)) {
+			struct ashmem_area *asma = file->private_data;
+			*filp = file;
+			*vm_file = asma->file;
+			*len = asma->size;
+			ret = 0;
+		} else {
+			pr_err("file descriptor is not an ashmem "
+				"region fd: %d\n", fd);
+			fput(file);
+		}
+	}
+	return ret;
+}
+EXPORT_SYMBOL(get_ashmem_file);
+
+void put_ashmem_file(struct file *file)
+{
+	char currtask_name[FIELD_SIZEOF(struct task_struct, comm) + 1];
+	pr_debug("rdev %d pid %u(%s) file %p(%ld)" " dev id: %d\n",
+		file->f_dentry->d_inode->i_rdev, current->pid,
+		get_task_comm(currtask_name, current), file,
+		file_count(file), MINOR(file->f_dentry->d_inode->i_rdev));
+	if (file && is_ashmem_file(file))
+		fput(file);
+}
+EXPORT_SYMBOL(put_ashmem_file);
+
 static struct file_operations ashmem_fops = {
 	.owner = THIS_MODULE,
 	.open = ashmem_open,
 	.release = ashmem_release,
-	.read = ashmem_read,
-	.llseek = ashmem_llseek,
 	.mmap = ashmem_mmap,
 	.unlocked_ioctl = ashmem_ioctl,
 	.compat_ioctl = ashmem_ioctl,
