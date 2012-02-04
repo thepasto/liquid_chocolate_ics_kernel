@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010, Code Aurora Forum. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -26,45 +26,15 @@
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  */
+#ifndef _LEIA_REG_H
+#define _LEIA_REG_H
 
-#ifndef __KGSL_CMDSTREAM_H
-#define __KGSL_CMDSTREAM_H
+#define REG_LEIA_PC_INDX_OFFSET          REG_VGT_INDX_OFFSET
+#define REG_LEIA_PC_VERTEX_REUSE_BLOCK_CNTL REG_VGT_VERTEX_REUSE_BLOCK_CNTL
+#define REG_LEIA_PC_MAX_VTX_INDX         REG_VGT_MAX_VTX_INDX
+#define REG_LEIA_RB_LRZ_VSC_CONTROL	 0x2209
+#define REG_LEIA_GRAS_CONTROL            0x2210
+#define REG_LEIA_VSC_BIN_SIZE            0x0C01
+#define REG_LEIA_VSC_PIPE_DATA_LENGTH_7  0x0C1D
 
-#include <linux/msm_kgsl.h>
-#include "kgsl_device.h"
-
-#ifdef KGSL_DEVICE_SHADOW_MEMSTORE_TO_USER
-#define KGSL_CMDSTREAM_USE_MEM_TIMESTAMP
-#endif /* KGSL_DEVICE_SHADOW_MEMSTORE_TO_USER */
-
-#ifdef KGSL_CMDSTREAM_USE_MEM_TIMESTAMP
-#define KGSL_CMDSTREAM_GET_SOP_TIMESTAMP(device, data) 	\
-		kgsl_sharedmem_readl(&device->memstore, (data),	\
-				KGSL_DEVICE_MEMSTORE_OFFSET(soptimestamp))
-#else
-#define KGSL_CMDSTREAM_GET_SOP_TIMESTAMP(device, data)	\
-		kgsl_yamato_regread(device, REG_CP_TIMESTAMP, (data))
-#endif /* KGSL_CMDSTREAM_USE_MEM_TIMESTAMP */
-
-#define KGSL_CMDSTREAM_GET_EOP_TIMESTAMP(device, data)	\
-		kgsl_sharedmem_readl(&device->memstore, (data),	\
-				KGSL_DEVICE_MEMSTORE_OFFSET(eoptimestamp))
-
-/* Flags to control command packet settings */
-#define KGSL_CMD_FLAGS_PMODE			0x00000001
-#define KGSL_CMD_FLAGS_NO_TS_CMP		0x00000002
-#define KGSL_CMD_FLAGS_NOT_KERNEL_CMD		0x00000004
-
-/* Command identifiers */
-#define KGSL_CONTEXT_TO_MEM_IDENTIFIER		0xDEADBEEF
-#define KGSL_CMD_IDENTIFIER			0xFEEDFACE
-
-struct kgsl_mem_entry;
-
-int kgsl_cmdstream_close(struct kgsl_device *device);
-
-uint32_t
-kgsl_cmdstream_readtimestamp(struct kgsl_device *device,
-			     enum kgsl_timestamp_type type);
-
-#endif /* __KGSL_CMDSTREAM_H */
+#endif /*_LEIA_REG_H*/

@@ -1360,8 +1360,8 @@ static int pmem_mmap(struct file *file, struct vm_area_struct *vma)
 	down_write(&data->sem);
 	/* check this file isn't already mmaped, for submaps check this file
 	 * has never been mmaped */
-
-	  if ((data->flags & PMEM_FLAGS_SUBMAP) ||
+	if ((data->flags & PMEM_FLAGS_MASTERMAP) ||
+	    (data->flags & PMEM_FLAGS_SUBMAP) ||
 	    (data->flags & PMEM_FLAGS_UNSUBMAP)) {
 #if PMEM_DEBUG
 		printk(KERN_ERR "pmem: you can only mmap a pmem file once, "
@@ -1622,7 +1622,7 @@ void flush_pmem_file(struct file *file, unsigned long offset, unsigned long len)
 		return;
 
 	id = get_id(file);
-	if (!pmem[id].cached || file->f_flags & O_SYNC)
+	if (!pmem[id].cached)
 		return;
 
 	/* is_pmem_file fails if !file */
@@ -2289,16 +2289,6 @@ static long pmem_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	case PMEM_CONNECT:
 		DLOG("connect\n");
 		return pmem_connect(arg, file);
-	case PMEM_CACHE_FLUSH:
-		{
-			struct pmem_region region;
-			DLOG("flush\n");
-			if (copy_from_user(&region, (void __user *)arg,
-					sizeof(struct pmem_region)))
-				return -EFAULT;
-			flush_pmem_file(file, region.offset, region.len);
-			break;
-		}
 	case PMEM_CLEAN_INV_CACHES:
 	case PMEM_CLEAN_CACHES:
 	case PMEM_INV_CACHES:
@@ -2819,4 +2809,3 @@ static void __exit pmem_exit(void)
 
 module_init(pmem_init);
 module_exit(pmem_exit);
-

@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010, Code Aurora Forum. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -27,44 +27,13 @@
  *
  */
 
-#ifndef __KGSL_CMDSTREAM_H
-#define __KGSL_CMDSTREAM_H
+#ifndef KGSL_POSTMORTEM_H
+#define KGSL_POSTMORTEM_H
 
-#include <linux/msm_kgsl.h>
-#include "kgsl_device.h"
+struct kgsl_device;
 
-#ifdef KGSL_DEVICE_SHADOW_MEMSTORE_TO_USER
-#define KGSL_CMDSTREAM_USE_MEM_TIMESTAMP
-#endif /* KGSL_DEVICE_SHADOW_MEMSTORE_TO_USER */
+void kgsl_postmortem_init(struct kgsl_device *device);
 
-#ifdef KGSL_CMDSTREAM_USE_MEM_TIMESTAMP
-#define KGSL_CMDSTREAM_GET_SOP_TIMESTAMP(device, data) 	\
-		kgsl_sharedmem_readl(&device->memstore, (data),	\
-				KGSL_DEVICE_MEMSTORE_OFFSET(soptimestamp))
-#else
-#define KGSL_CMDSTREAM_GET_SOP_TIMESTAMP(device, data)	\
-		kgsl_yamato_regread(device, REG_CP_TIMESTAMP, (data))
-#endif /* KGSL_CMDSTREAM_USE_MEM_TIMESTAMP */
+int kgsl_postmortem_dump(struct kgsl_device *device, int manual);
 
-#define KGSL_CMDSTREAM_GET_EOP_TIMESTAMP(device, data)	\
-		kgsl_sharedmem_readl(&device->memstore, (data),	\
-				KGSL_DEVICE_MEMSTORE_OFFSET(eoptimestamp))
-
-/* Flags to control command packet settings */
-#define KGSL_CMD_FLAGS_PMODE			0x00000001
-#define KGSL_CMD_FLAGS_NO_TS_CMP		0x00000002
-#define KGSL_CMD_FLAGS_NOT_KERNEL_CMD		0x00000004
-
-/* Command identifiers */
-#define KGSL_CONTEXT_TO_MEM_IDENTIFIER		0xDEADBEEF
-#define KGSL_CMD_IDENTIFIER			0xFEEDFACE
-
-struct kgsl_mem_entry;
-
-int kgsl_cmdstream_close(struct kgsl_device *device);
-
-uint32_t
-kgsl_cmdstream_readtimestamp(struct kgsl_device *device,
-			     enum kgsl_timestamp_type type);
-
-#endif /* __KGSL_CMDSTREAM_H */
+#endif /* KGSL_POSTMORTEM_H */
