@@ -15,6 +15,8 @@ lib-y := ctype.o string.o vsprintf.o cmdline.o \
 	 decompress_inflate.o decompress_bunzip2.o decompress_unlzma.o \
 	 memory_alloc.o
 
+obj-y += kstrtox.o
+
 lib-$(CONFIG_MMU) += ioremap.o
 lib-$(CONFIG_SMP) += cpumask.o
 
