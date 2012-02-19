@@ -49,7 +49,7 @@ struct usb_function_map {
 	unsigned bit_pos;
 };
 
-#ifndef CONFIG_USB_ANDROID
+#ifndef CONFIG_USB_G_ANDROID
 /* platform device data for msm_hsusb driver */
 struct usb_composition {
 	__u16   product_id;
@@ -62,7 +62,11 @@ enum chg_type {
 	USB_CHG_TYPE__SDP,
 	USB_CHG_TYPE__CARKIT,
 	USB_CHG_TYPE__WALLCHARGER,
-	USB_CHG_TYPE__INVALID
+	USB_CHG_TYPE__INVALID,
+#ifdef CONFIG_SUPPORT_ALIEN_USB_CHARGER
+	USB_CHG_TYPE__MIGHT_BE_HOST_PC,
+	USB_CHG_TYPE__ALIENCHARGER,
+#endif /*  CONFIG_SUPPORT_ALIEN_USB_CHARGER */
 };
 #endif
 

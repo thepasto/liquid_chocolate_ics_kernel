@@ -61,7 +61,6 @@
 #include <linux/platform_device.h>
 #include <linux/android_pmem.h>
 #include <linux/bootmem.h>
-#include <linux/usb/mass_storage_function.h>
 #include <linux/i2c.h>
 #include <linux/spi/spi.h>
 #include <linux/delay.h>
@@ -111,9 +110,8 @@
 #include "pm.h"
 #include "proc_comm.h"
 #include <linux/msm_kgsl.h>
-#ifdef CONFIG_USB_ANDROID
 #include <linux/usb/android.h>
-#endif
+
 
 #if defined(CONFIG_MOUSE_MSM_TOUCHPAD)
 #define TOUCHPAD_SUSPEND 	34
@@ -122,22 +120,29 @@
 
 #define SMEM_SPINLOCK_I2C	"S:6"
 
-#define MSM_PMEM_ADSP_SIZE	0x02196000
-#define MSM_PMEM_MDP_SIZE	0x01700000
-#define PMEM_KERNEL_EBI1_SIZE	0x00028000
+#define MSM_PMEM_ADSP_SIZE	0x2196000
+#define MSM_FB_SIZE		0x177000
+#define MSM_GPU_PHYS_SIZE 	SZ_2M
 
-#define MSM_SHARED_RAM_PHYS	0x00100000
+#ifdef CONFIG_MSM_SOC_REV_A
+#define MSM_SMI_BASE		0xE0000000
+#else
+#define MSM_SMI_BASE		0x00000000
+#endif
 
-#define MSM_FB_BASE		0x02300000
-#define MSM_FB_SIZE		0x00177000
-
-#define MSM_GPU_PHYS_SIZE 	0x00200000
-#define MSM_GPU_PHYS_BASE 	0x02300000
+#define MSM_SHARED_RAM_PHYS	(MSM_SMI_BASE + 0x00100000)
 
 #define MODEM_SIZE		0x02300000
-
-#define MSM_PMEM_SMI_BASE	0x02300000
+#define MSM_PMEM_SMI_BASE	(MSM_SMI_BASE + MODEM_SIZE)
 #define MSM_PMEM_SMI_SIZE	0x01D00000
+
+#define MSM_GPU_PHYS_BASE 	MSM_PMEM_SMI_BASE
+#define MSM_PMEM_MDP_BASE	(MSM_GPU_PHYS_BASE + MSM_GPU_PHYS_SIZE)
+#define MSM_PMEM_MDP_SIZE	0x1700000
+#define MSM_PMEM_VENC_BASE	(MSM_PMEM_MDP_BASE + MSM_PMEM_MDP_SIZE)
+#define MSM_PMEM_VENC_SIZE	(MSM_PMEM_SMI_SIZE - MSM_GPU_PHYS_SIZE - MSM_PMEM_MDP_SIZE)
+
+#define PMEM_KERNEL_EBI1_SIZE	0x28000
 
 static DEFINE_MUTEX(wifibtmutex);
 
@@ -165,156 +170,21 @@ static struct resource smc91x_resources[] = {
 };
 #endif
 
-#ifdef CONFIG_USB_FUNCTION
-static struct usb_mass_storage_platform_data usb_mass_storage_pdata = {
-	.nluns          = 0x02,
-	.buf_size       = 16384,
-	.vendor         = "GOOGLE",
-	.product        = "Mass storage",
-	.release        = 0xffff,
+static struct usb_mass_storage_platform_data mass_storage_pdata = {
+        .nluns = 1,
+        .vendor = "ACER",
+        .product = "Mass Storage",
+        .release = 0x0100,
+
 };
 
-static struct platform_device mass_storage_device = {
-	.name           = "usb_mass_storage",
-	.id             = -1,
-	.dev            = {
-		.platform_data          = &usb_mass_storage_pdata,
-	},
+static struct platform_device usb_mass_storage_device = {
+        .name = "usb_mass_storage",
+        .id = -1,
+        .dev = {
+                .platform_data = &mass_storage_pdata,
+                },
 };
-#endif
-
-#ifdef CONFIG_USB_ANDROID
-#if defined(CONFIG_MACH_ACER_A1)
-/* dynamic composition */
-static struct usb_composition usb_func_composition[] = {
-	{
-		.product_id         = 0x3203,
-		/* DIAG + ADB + GENERIC MODEM + GENERIC NMEA + MSC*/
-		.functions          = 0x2764,
-		.adb_product_id     = 0x3202,
-		.adb_functions	    = 0x27614,
-	},
-#ifdef CONFIG_USB_ANDROID_RNDIS
-	{
-		/* RNDIS */
-		.product_id         = 0x3223,
-		.functions	    = 0x2764A,
-		.adb_product_id     = 0x3222,
-		.adb_functions	    = 0x27614A,
-	},
-#endif
-};
-#else
-/* dynamic composition */
-static struct usb_composition usb_func_composition[] = {
-	{
-		/* MSC */
-		.product_id         = 0xF000,
-		.functions	    = 0x02,
-		.adb_product_id     = 0x9015,
-		.adb_functions	    = 0x12
-	},
-#ifdef CONFIG_USB_F_SERIAL
-	{
-		/* MODEM */
-		.product_id         = 0xF00B,
-		.functions	    = 0x06,
-		.adb_product_id     = 0x901E,
-		.adb_functions	    = 0x16,
-	},
-#endif
-#ifdef CONFIG_USB_ANDROID_DIAG
-	{
-		/* DIAG */
-		.product_id         = 0x900E,
-		.functions	    = 0x04,
-		.adb_product_id     = 0x901D,
-		.adb_functions	    = 0x14,
-	},
-#endif
-#if defined(CONFIG_USB_ANDROID_DIAG) && defined(CONFIG_USB_F_SERIAL)
-	{
-		/* DIAG + MODEM */
-		.product_id         = 0x9004,
-		.functions	    = 0x64,
-		.adb_product_id     = 0x901F,
-		.adb_functions	    = 0x0614,
-	},
-	{
-		/* DIAG + MODEM + NMEA*/
-		.product_id         = 0x9016,
-		.functions	    = 0x764,
-		.adb_product_id     = 0x9020,
-		.adb_functions	    = 0x7614,
-	},
-	{
-		/* DIAG + MODEM + NMEA + MSC */
-		.product_id         = 0x9017,
-		.functions	    = 0x2764,
-		.adb_product_id     = 0x9018,
-		.adb_functions	    = 0x27614,
-	},
-#endif
-#ifdef CONFIG_USB_ANDROID_CDC_ECM
-	{
-		/* MSC + CDC-ECM */
-		.product_id         = 0x9014,
-		.functions	    = 0x82,
-		.adb_product_id     = 0x9023,
-		.adb_functions	    = 0x812,
-	},
-#endif
-#ifdef CONFIG_USB_ANDROID_RMNET
-	{
-		/* DIAG + RMNET */
-		.product_id         = 0x9021,
-		.functions	    = 0x94,
-		.adb_product_id     = 0x9022,
-		.adb_functions	    = 0x914,
-	},
-#endif
-#ifdef CONFIG_USB_ANDROID_RNDIS
-	{
-		/* RNDIS */
-		.product_id         = 0xF00E,
-		.functions	    = 0xA,
-		.adb_product_id     = 0x9024,
-		.adb_functions	    = 0x1A,
-	},
-#endif
-};
-#endif //defined(CONFIG_MACH_ACER_A1)
-
-#ifdef CONFIG_MACH_ACER_A1
-static struct android_usb_platform_data android_usb_pdata = {
-	.vendor_id	= 0x0502,
-	.version	= 0x0100,
-	.compositions   = usb_func_composition,
-	.num_compositions = ARRAY_SIZE(usb_func_composition),
-	.product_name	= "Android HSUSB Device",
-	.manufacturer_name = "Acer Incorporated",
-	.nluns = 1,
-};
-#else
-static struct android_usb_platform_data android_usb_pdata = {
-	.vendor_id	= 0x05C6,
-	.version	= 0x0100,
-	.compositions   = usb_func_composition,
-	.num_compositions = ARRAY_SIZE(usb_func_composition),
-	.product_name	= "Qualcomm HSUSB Device",
-	.manufacturer_name = "Qualcomm Incorporated",
-	.nluns = 1,
-};
-#endif //def CONFIG_MACH_ACER_A1
-
-static struct platform_device android_usb_device = {
-	.name	= "android_usb",
-	.id		= -1,
-	.dev		= {
-		.platform_data = &android_usb_pdata,
-	},
-};
-#endif
 
 #ifdef CONFIG_SMC91X
 static struct platform_device smc91x_device = {
@@ -406,70 +276,6 @@ static struct platform_device s1r72v05_device = {
 	},
 };
 #endif //def CONFIG_BLK_DEV_IDE_S1R72V05
-
-#ifdef CONFIG_USB_FUNCTION
-static struct usb_function_map usb_functions_map[] = {
-	{"diag", 0},
-	{"adb", 1},
-	{"modem", 2},
-	{"nmea", 3},
-	{"mass_storage", 4},
-	{"ethernet", 5},
-};
-
-/* dynamic composition */
-static struct usb_composition usb_func_composition[] = {
-	{
-		.product_id         = 0x9012,
-		.functions	    = 0x5, /* 0101 */
-	},
-
-	{
-		.product_id         = 0x9013,
-		.functions	    = 0x15, /* 10101 */
-	},
-
-	{
-		.product_id         = 0x9014,
-		.functions	    = 0x30, /* 110000 */
-	},
-
-	{
-		.product_id         = 0x9015,
-		.functions	    = 0x12, /* 10010 */
-	},
-
-	{
-		.product_id         = 0x9016,
-		.functions	    = 0xD, /* 01101 */
-	},
-
-	{
-		.product_id         = 0x9017,
-		.functions	    = 0x1D, /* 11101 */
-	},
-
-	{
-		.product_id         = 0xF000,
-		.functions	    = 0x10, /* 10000 */
-	},
-
-	{
-		.product_id         = 0xF009,
-		.functions	    = 0x20, /* 100000 */
-	},
-
-	{
-		.product_id         = 0x9018,
-		.functions	    = 0x1F, /* 011111 */
-	},
-
-	{
-		.product_id         = 0x901A,
-		.functions	    = 0x0F, /* 01111 */
-	},
-};
-#endif
 
 #ifdef CONFIG_MSM_RPCSERVER_HANDSET
 static struct platform_device hs_device = {
@@ -763,6 +569,8 @@ static struct android_pmem_platform_data android_pmem_kernel_smi_pdata = {
 
 static struct android_pmem_platform_data android_pmem_pdata = {
 	.name = "pmem",
+	.start = MSM_PMEM_MDP_BASE,
+	.size = MSM_PMEM_MDP_SIZE,
 	.allocator_type = PMEM_ALLOCATORTYPE_BITMAP,
 	.cached = 1,
 };
@@ -772,6 +580,15 @@ static struct android_pmem_platform_data android_pmem_adsp_pdata = {
 	.allocator_type = PMEM_ALLOCATORTYPE_BITMAP,
 	.cached = 0,
 };
+
+static struct android_pmem_platform_data android_pmem_venc_pdata = {
+	.name = "pmem_venc",
+	.start = MSM_PMEM_VENC_BASE,
+	.size = MSM_PMEM_VENC_SIZE,
+	.allocator_type = PMEM_ALLOCATORTYPE_BITMAP,
+	.cached = 0,
+};
+
 
 static struct platform_device android_pmem_device = {
 	.name = "android_pmem",
@@ -785,11 +602,26 @@ static struct platform_device android_pmem_adsp_device = {
 	.dev = { .platform_data = &android_pmem_adsp_pdata },
 };
 
+static struct platform_device android_pmem_venc_device = {
+	.name = "android_pmem",
+	.id = 2,
+	.dev = { .platform_data = &android_pmem_venc_pdata },
+};
+
+
 static struct platform_device android_pmem_kernel_ebi1_device = {
 	.name = "android_pmem",
 	.id = 3,
 	.dev = { .platform_data = &android_pmem_kernel_ebi1_pdata },
 };
+
+#ifdef CONFIG_KERNEL_PMEM_SMI_REGION
+static struct platform_device android_pmem_kernel_smi_device = {
+	.name = "android_pmem",
+	.id = 4,
+	.dev = { .platform_data = &android_pmem_kernel_smi_pdata },
+};
+#endif
 
 static struct resource msm_fb_resources[] = {
 	{
@@ -2647,18 +2479,13 @@ static struct platform_device *devices[] __initdata = {
 #endif
 	&android_pmem_device,
 	&android_pmem_adsp_device,
-	//&android_pmem_smipool_device,
+	&android_pmem_venc_device,
 	&msm_device_nand,
 	&msm_device_i2c,
 #ifdef CONFIG_QSD_SPI
 	&qsd_device_spi,
 #endif
-#ifdef CONFIG_USB_FUNCTION
-	&mass_storage_device,
-#endif
-#ifdef CONFIG_USB_ANDROID
-	&android_usb_device,
-#endif
+	&usb_mass_storage_device,
 	&msm_device_tssc,
 	&msm_audio_device,
 	&msm_device_uart_dm1,
@@ -3298,10 +3125,6 @@ static void __init qsd8x50_init(void)
 		msm_pm_data
 		[MSM_PM_SLEEP_MODE_RAMP_DOWN_AND_WAIT_FOR_INTERRUPT].latency;
 	msm_device_hsusb_peripheral.dev.platform_data = &msm_hsusb_pdata;
-
-	msm_gadget_pdata.swfi_latency =
-		msm_pm_data
-		[MSM_PM_SLEEP_MODE_RAMP_DOWN_AND_WAIT_FOR_INTERRUPT].latency;
 	msm_device_otg.dev.platform_data = &msm_otg_pdata;
 	msm_device_gadget_peripheral.dev.platform_data = &msm_gadget_pdata;
 
@@ -3385,13 +3208,19 @@ static void __init qsd8x50_allocate_memory_regions(void)
 #endif
 
 	size = pmem_mdp_size;
-	if (size) {
-		addr = alloc_bootmem(size);
-		android_pmem_pdata.start = __pa(addr);
-		android_pmem_pdata.size = size;
-		pr_info("allocating %lu bytes at %p (%lx physical) for mdp "
-			"pmem arena\n", size, addr, __pa(addr));
+	if (size > MSM_PMEM_MDP_SIZE) {
+		printk(KERN_ERR "pmem(mdp) smi arena size %lu is too big\n",
+			size);
+
+		size = MSM_PMEM_MDP_SIZE;
 	}
+	android_pmem_pdata.start = MSM_PMEM_MDP_BASE;
+	android_pmem_pdata.size = size;
+
+	pr_info("allocating %lu bytes at %lx (%lx physical)"
+		"for pmem(mdp) smi arena\n", size,
+		(long unsigned int) MSM_PMEM_MDP_BASE,
+		__pa(MSM_PMEM_MDP_BASE));
 
 	size = pmem_adsp_size;
 	if (size) {
@@ -3486,4 +3315,3 @@ MACHINE_START(QSD8X50A_FFA, "QCT QSD8X50A FFA")
 	.timer = &msm_timer,
 MACHINE_END
 #endif
-
