@@ -484,21 +484,6 @@ static int msm_hsusb_native_phy_reset(void __iomem *addr)
 }
 
 static struct msm_hsusb_platform_data msm_hsusb_pdata = {
-#ifdef CONFIG_USB_FUNCTION
-	.version	= 0x0100,
-	.phy_info	= (USB_PHY_INTEGRATED | USB_PHY_MODEL_180NM),
-	.vendor_id          = 0x5c6,
-	.product_name       = "Qualcomm HSUSB Device",
-	.serial_number      = "1234567890ABCDEF",
-	.manufacturer_name  = "Qualcomm Incorporated",
-	.compositions	= usb_func_composition,
-	.num_compositions = ARRAY_SIZE(usb_func_composition),
-	.function_map   = usb_functions_map,
-	.num_functions	= ARRAY_SIZE(usb_functions_map),
-	.config_gpio    = NULL,
-
-	.phy_reset = msm_hsusb_native_phy_reset,
-#endif
 };
 
 #ifdef CONFIG_USB_EHCI_MSM
@@ -581,8 +566,8 @@ static struct android_pmem_platform_data android_pmem_adsp_pdata = {
 	.cached = 0,
 };
 
-static struct android_pmem_platform_data android_pmem_venc_pdata = {
-	.name = "pmem_venc",
+static struct android_pmem_platform_data android_pmem_smipool_pdata = {
+	.name = "pmem_smipool",
 	.start = MSM_PMEM_VENC_BASE,
 	.size = MSM_PMEM_VENC_SIZE,
 	.allocator_type = PMEM_ALLOCATORTYPE_BITMAP,
@@ -602,10 +587,10 @@ static struct platform_device android_pmem_adsp_device = {
 	.dev = { .platform_data = &android_pmem_adsp_pdata },
 };
 
-static struct platform_device android_pmem_venc_device = {
+static struct platform_device android_pmem_smipool_device = {
 	.name = "android_pmem",
 	.id = 2,
-	.dev = { .platform_data = &android_pmem_venc_pdata },
+	.dev = { .platform_data = &android_pmem_smipool_pdata },
 };
 
 
@@ -2479,7 +2464,7 @@ static struct platform_device *devices[] __initdata = {
 #endif
 	&android_pmem_device,
 	&android_pmem_adsp_device,
-	&android_pmem_venc_device,
+	&android_pmem_smipool_device,
 	&msm_device_nand,
 	&msm_device_i2c,
 #ifdef CONFIG_QSD_SPI
@@ -2541,8 +2526,8 @@ static void __init qsd8x50_init_irq(void)
 	msm_init_irq();
 	msm_init_sirc();
 }
-/*
-static void kgsl_phys_memory_init(void)
+
+/*static void kgsl_phys_memory_init(void)
 {
 	request_mem_region(kgsl_resources[1].start,
 		resource_size(&kgsl_resources[1]), "kgsl");
@@ -3125,6 +3110,10 @@ static void __init qsd8x50_init(void)
 		msm_pm_data
 		[MSM_PM_SLEEP_MODE_RAMP_DOWN_AND_WAIT_FOR_INTERRUPT].latency;
 	msm_device_hsusb_peripheral.dev.platform_data = &msm_hsusb_pdata;
+
+	msm_gadget_pdata.swfi_latency =
+		msm_pm_data
+		[MSM_PM_SLEEP_MODE_RAMP_DOWN_AND_WAIT_FOR_INTERRUPT].latency;
 	msm_device_otg.dev.platform_data = &msm_otg_pdata;
 	msm_device_gadget_peripheral.dev.platform_data = &msm_gadget_pdata;
 
@@ -3315,3 +3304,4 @@ MACHINE_START(QSD8X50A_FFA, "QCT QSD8X50A FFA")
 	.timer = &msm_timer,
 MACHINE_END
 #endif
+
