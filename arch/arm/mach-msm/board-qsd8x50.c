@@ -118,10 +118,13 @@
 #define TOUCHPAD_IRQ 		38
 #endif //defined(CONFIG_MOUSE_MSM_TOUCHPAD)
 
+#define MSM_PMEM_SF_SIZE	0x1700000
+
 #define SMEM_SPINLOCK_I2C	"S:6"
 
-#define MSM_PMEM_ADSP_SIZE	0x2196000
-#define MSM_FB_SIZE		0x2EE000
+#define MSM_PMEM_ADSP_SIZE	0x02300000
+#define MSM_FB_SIZE         0x2EE000
+#define MSM_AUDIO_SIZE		0x80000
 #define MSM_GPU_PHYS_SIZE 	SZ_2M
 
 #ifdef CONFIG_MSM_SOC_REV_A
@@ -132,15 +135,14 @@
 
 #define MSM_SHARED_RAM_PHYS	(MSM_SMI_BASE + 0x00100000)
 
-#define MODEM_SIZE		0x02300000
-#define MSM_PMEM_SMI_BASE	(MSM_SMI_BASE + MODEM_SIZE)
+#define MSM_PMEM_SMI_BASE	(MSM_SMI_BASE + 0x02B00000)
 #define MSM_PMEM_SMI_SIZE	0x01D00000
 
-#define MSM_GPU_PHYS_BASE 	MSM_PMEM_SMI_BASE
-#define MSM_PMEM_MDP_BASE	(MSM_GPU_PHYS_BASE + MSM_GPU_PHYS_SIZE)
-#define MSM_PMEM_MDP_SIZE	0x1700000
-#define MSM_PMEM_VENC_BASE	(MSM_PMEM_MDP_BASE + MSM_PMEM_MDP_SIZE)
-#define MSM_PMEM_VENC_SIZE	(MSM_PMEM_SMI_SIZE - MSM_GPU_PHYS_SIZE - MSM_PMEM_MDP_SIZE)
+#define MSM_FB_BASE		MSM_PMEM_SMI_BASE
+#define MSM_GPU_PHYS_BASE 	(MSM_FB_BASE + MSM_FB_SIZE)
+#define MSM_PMEM_SMIPOOL_BASE	(MSM_GPU_PHYS_BASE + MSM_GPU_PHYS_SIZE)
+#define MSM_PMEM_SMIPOOL_SIZE	(MSM_PMEM_SMI_SIZE - MSM_FB_SIZE \
+					- MSM_GPU_PHYS_SIZE)
 
 #define PMEM_KERNEL_EBI1_SIZE	0x28000
 
@@ -554,9 +556,7 @@ static struct android_pmem_platform_data android_pmem_kernel_smi_pdata = {
 
 static struct android_pmem_platform_data android_pmem_pdata = {
 	.name = "pmem",
-	.start = MSM_PMEM_MDP_BASE,
-	.size = MSM_PMEM_MDP_SIZE,
-	.allocator_type = PMEM_ALLOCATORTYPE_BITMAP,
+	.allocator_type = PMEM_ALLOCATORTYPE_ALLORNOTHING,
 	.cached = 1,
 };
 
@@ -568,8 +568,8 @@ static struct android_pmem_platform_data android_pmem_adsp_pdata = {
 
 static struct android_pmem_platform_data android_pmem_smipool_pdata = {
 	.name = "pmem_smipool",
-	.start = MSM_PMEM_VENC_BASE,
-	.size = MSM_PMEM_VENC_SIZE,
+	.start = MSM_PMEM_SMIPOOL_BASE,
+	.size = MSM_PMEM_SMIPOOL_SIZE,
 	.allocator_type = PMEM_ALLOCATORTYPE_BITMAP,
 	.cached = 0,
 };
@@ -3065,36 +3065,45 @@ static void __init pmem_kernel_ebi1_size_setup(char **p)
 __early_param("pmem_kernel_ebi1_size=", pmem_kernel_ebi1_size_setup);
 
 #ifdef CONFIG_KERNEL_PMEM_SMI_REGION
-static unsigned pmem_kernel_smi_size = MSM_PMEM_VENC_SIZE;
-static void __init pmem_kernel_smi_size_setup(char **p)
+static unsigned pmem_kernel_smi_size = MSM_PMEM_SMIPOOL_SIZE;
+static int __init pmem_kernel_smi_size_setup(char *p)
 {
-	pmem_kernel_smi_size = memparse(*p, p);
+	pmem_kernel_smi_size = memparse(p, NULL);
 
 	/* Make sure that we don't allow more SMI memory then is
 	   available - the kernel mapping code has no way of knowing
 	   if it has gone over the edge */
 
-	if (pmem_kernel_smi_size > MSM_PMEM_VENC_SIZE)
-		pmem_kernel_smi_size = MSM_PMEM_VENC_SIZE;
+	if (pmem_kernel_smi_size > MSM_PMEM_SMIPOOL_SIZE)
+		pmem_kernel_smi_size = MSM_PMEM_SMIPOOL_SIZE;
+	return 0;
 }
-__early_param("pmem_kernel_smi_size=", pmem_kernel_smi_size_setup);
+early_param("pmem_kernel_smi_size", pmem_kernel_smi_size_setup);
 #endif
 
-static unsigned pmem_mdp_size = MSM_PMEM_MDP_SIZE;
-static void __init pmem_mdp_size_setup(char **p)
+static unsigned pmem_sf_size = MSM_PMEM_SF_SIZE;
+static int __init pmem_sf_size_setup(char *p)
 {
-	pmem_mdp_size = memparse(*p, p);
-	if (pmem_mdp_size > MSM_PMEM_MDP_SIZE)
-		pmem_mdp_size = MSM_PMEM_MDP_SIZE;
+	pmem_sf_size = memparse(p, NULL);
+	return 0;
 }
-__early_param("pmem_mdp_size=", pmem_mdp_size_setup);
+early_param("pmem_sf_size", pmem_sf_size_setup);
 
 static unsigned pmem_adsp_size = MSM_PMEM_ADSP_SIZE;
-static void __init pmem_adsp_size_setup(char **p)
+static int __init pmem_adsp_size_setup(char *p)
 {
-	pmem_adsp_size = memparse(*p, p);
+	pmem_adsp_size = memparse(p, NULL);
+	return 0;
 }
-__early_param("pmem_adsp_size=", pmem_adsp_size_setup);
+early_param("pmem_adsp_size", pmem_adsp_size_setup);
+
+static unsigned audio_size = MSM_AUDIO_SIZE;
+static int __init audio_size_setup(char *p)
+{
+	audio_size = memparse(p, NULL);
+	return 0;
+}
+early_param("audio_size", audio_size_setup);
 
 static void __init qsd8x50_init(void)
 {
@@ -3180,36 +3189,30 @@ static void __init qsd8x50_allocate_memory_regions(void)
 
 #ifdef CONFIG_KERNEL_PMEM_SMI_REGION
 	size = pmem_kernel_smi_size;
-	if (size > MSM_PMEM_VENC_SIZE) {
+	if (size > MSM_PMEM_SMIPOOL_SIZE) {
 		printk(KERN_ERR "pmem kernel smi arena size %lu is too big\n",
 			size);
 
-		size = MSM_PMEM_VENC_SIZE;
+		size = MSM_PMEM_SMIPOOL_SIZE;
 	}
 
-	android_pmem_kernel_smi_pdata.start = MSM_PMEM_VENC_BASE;
+	android_pmem_kernel_smi_pdata.start = MSM_PMEM_SMIPOOL_BASE;
 	android_pmem_kernel_smi_pdata.size = size;
 
 	pr_info("allocating %lu bytes at %lx (%lx physical)"
 		"for pmem kernel smi arena\n", size,
-		(long unsigned int) MSM_PMEM_VENC_BASE,
-		__pa(MSM_PMEM_VENC_BASE));
+		(long unsigned int) MSM_PMEM_SMIPOOL_BASE,
+		__pa(MSM_PMEM_SMIPOOL_BASE));
 #endif
 
-	size = pmem_mdp_size;
-	if (size > MSM_PMEM_MDP_SIZE) {
-		printk(KERN_ERR "pmem(mdp) smi arena size %lu is too big\n",
-			size);
-
-		size = MSM_PMEM_MDP_SIZE;
+	size = pmem_sf_size;
+	if (size) {
+		addr = alloc_bootmem(size);
+		android_pmem_pdata.start = __pa(addr);
+		android_pmem_pdata.size = size;
+		pr_info("allocating %lu bytes at %p (%lx physical) for sf "
+			"pmem arena\n", size, addr, __pa(addr));
 	}
-	android_pmem_pdata.start = MSM_PMEM_MDP_BASE;
-	android_pmem_pdata.size = size;
-
-	pr_info("allocating %lu bytes at %lx (%lx physical)"
-		"for pmem(mdp) smi arena\n", size,
-		(long unsigned int) MSM_PMEM_MDP_BASE,
-		__pa(MSM_PMEM_MDP_BASE));
 
 	size = pmem_adsp_size;
 	if (size) {
@@ -3222,13 +3225,18 @@ static void __init qsd8x50_allocate_memory_regions(void)
 
 
 	size = MSM_FB_SIZE;
-	if (size) {
-		addr = alloc_bootmem(size);
-		msm_fb_resources[0].start = __pa(addr);
-		msm_fb_resources[0].end = msm_fb_resources[0].start + size - 1;
-		pr_info("using %lu bytes of EBI1 at %lx physical for fb\n",
-		       size, (unsigned long)addr);
-	}
+	addr = (void *)MSM_FB_BASE;
+	msm_fb_resources[0].start = (unsigned long)addr;
+	msm_fb_resources[0].end = msm_fb_resources[0].start + size - 1;
+	pr_info("using %lu bytes of SMI at %lx physical for fb\n",
+	       size, (unsigned long)addr);
+
+	size = audio_size ? : MSM_AUDIO_SIZE;
+	addr = alloc_bootmem(size);
+	msm_audio_resources[0].start = __pa(addr);
+	msm_audio_resources[0].end = msm_audio_resources[0].start + size - 1;
+	pr_info("allocating %lu bytes at %p (%lx physical) for audio\n",
+		size, addr, __pa(addr));
 }
 
 static void __init qsd8x50_map_io(void)
