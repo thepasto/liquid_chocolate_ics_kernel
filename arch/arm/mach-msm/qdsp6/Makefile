@@ -3,6 +3,8 @@ obj-y += q6audio.o
 obj-y += analog_audio.o
 obj-y += pcm_out.o
 obj-y += pcm_in.o
+obj-y += auxpcm_lb_out.o
+obj-y += auxpcm_lb_in.o
 obj-y += aac_in.o
 obj-y += qcelp_in.o
 obj-y += evrc_in.o
@@ -13,6 +15,7 @@ obj-y += routing.o
 obj-y += audio_ctl.o
 obj-y += msm_q6vdec.o
 obj-y += msm_q6venc.o
+obj-y += dsp_debug.o
 obj-$(CONFIG_QSD_AUDIO) += audiov2/
 
 obj-$(CONFIG_AUDIO_TPA2018)  += tpa2018.o

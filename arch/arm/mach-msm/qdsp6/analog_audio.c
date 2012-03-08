@@ -15,9 +15,14 @@
  * 02110-1301, USA.
  */
 
+#include <linux/init.h>
+#include <linux/wait.h>
 #include <linux/gpio.h>
 #include <mach/pmic.h>
 #include <mach/msm_qdsp6_audio.h>
+#include <asm/string.h>
+#include <asm/mach-types.h>
+#include <mach/debug_mm.h>
 #ifdef CONFIG_AUDIO_TPA2018
 #include <mach/tpa2018.h>
 #endif
@@ -61,6 +66,7 @@ void analog_speaker_enable(int en)
 	struct spkr_config_mode scm;
 	memset(&scm, 0, sizeof(scm));
 
+	pr_debug("[%s:%s] en = %d\n", __MM_FILE__, __func__, en);
 	if (en) {
 		scm.is_right_chan_en = 1;
 		scm.is_left_chan_en = 1;
@@ -109,7 +115,8 @@ void analog_speaker_enable(int en)
 
 void analog_mic_enable(int en)
 {
-	pmic_mic_en(en);
+	pr_debug("[%s:%s] en = %d\n", __MM_FILE__, __func__, en);
+ 	pmic_mic_en(en);
 #ifdef CONFIG_AUDIO_FM2018
 	if (hw_version <= 3) {
 		pr_debug("[Audio] Open fm2018 !!\n");
