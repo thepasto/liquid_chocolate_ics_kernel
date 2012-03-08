@@ -607,8 +607,7 @@ static int is_master_owner(struct file *file)
 	master_file = fget_light(data->master_fd, &put_needed);
 	if (master_file && data->master_file == master_file)
 		ret = 1;
-	if (master_file)
-		fput_light(master_file, put_needed);
+	fput_light(master_file, put_needed);
 	return ret;
 }
 
@@ -1560,10 +1559,6 @@ static int pmem_mmap(struct file *file, struct vm_area_struct *vma)
 	unsigned long vma_size =  vma->vm_end - vma->vm_start;
 	int ret = 0, id = get_id(file);
 
-	if (!data) {
-		pr_err("pmem: Invalid file descriptor, no private data\n");
-		return -EINVAL;
-	}
 #if PMEM_DEBUG_MSGS
 	char currtask_name[FIELD_SIZEOF(struct task_struct, comm) + 1];
 #endif
@@ -1592,21 +1587,24 @@ static int pmem_mmap(struct file *file, struct vm_area_struct *vma)
 		goto error;
 	}
 	/* if file->private_data == unalloced, alloc*/
-	if (data->index == -1) {
+	if (data && data->index == -1) {
 		mutex_lock(&pmem[id].arena_mutex);
 		index = pmem[id].allocate(id,
 				vma->vm_end - vma->vm_start,
 				SZ_4K);
 		mutex_unlock(&pmem[id].arena_mutex);
-		/* either no space was available or an error occured */
-		if (index == -1) {
+		data->index = index;
+		if (data->index == -1) {
 			pr_err("pmem: mmap unable to allocate memory"
 				"on %s\n", get_name(file));
-			ret = -ENOMEM;
-			goto error;
 		}
-		/* store the index of a successful allocation */
-		data->index = index;
+	}
+
+	/* either no space was available or an error occured */
+	if (!has_allocation(file)) {
+		ret = -ENOMEM;
+		pr_err("pmem: could not find allocation for map.\n");
+		goto error;
 	}
 
 	if (pmem[id].len(id, data) < vma_size) {
@@ -3161,3 +3159,4 @@ static void __exit pmem_exit(void)
 
 module_init(pmem_init);
 module_exit(pmem_exit);
+
