@@ -16,11 +16,6 @@ config ANDROID_LOGGER
 	tristate "Android log driver"
 	default n
 
-config ANDROID_LOGGER_TEST
-	tristate "Simple module to test Android log driver"
-	depends on ANDROID_LOGGER
-	default m
-
 config ANDROID_RAM_CONSOLE
 	bool "Android RAM buffer console"
 	default n
@@ -95,8 +90,6 @@ config ANDROID_LOW_MEMORY_KILLER
 	---help---
 	  Register processes to be killed when memory is low
 
-
 endif # if ANDROID
-
 
 endmenu
