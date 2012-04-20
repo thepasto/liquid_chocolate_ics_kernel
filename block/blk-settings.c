@@ -124,7 +124,7 @@ void blk_queue_make_request(struct request_queue *q, make_request_fn *mfn)
 	 */
 	q->nr_requests = BLKDEV_MAX_RQ;
 	blk_queue_max_phys_segments(q, MAX_PHYS_SEGMENTS);
-	blk_queue_max_hw_segments(q, MAX_HW_SEGMENTS);
+	blk_queue_max_segments(q, MAX_HW_SEGMENTS);
 	blk_queue_segment_boundary(q, BLK_SEG_BOUNDARY_MASK);
 	blk_queue_max_segment_size(q, MAX_SEGMENT_SIZE);
 
@@ -133,7 +133,7 @@ void blk_queue_make_request(struct request_queue *q, make_request_fn *mfn)
 			(VM_MAX_READAHEAD * 1024) / PAGE_CACHE_SIZE;
 	q->backing_dev_info.state = 0;
 	q->backing_dev_info.capabilities = BDI_CAP_MAP_COPY;
-	blk_queue_max_sectors(q, SAFE_MAX_SECTORS);
+	blk_queue_max_hw_sectors(q, SAFE_MAX_SECTORS);
 	blk_queue_hardsect_size(q, 512);
 	blk_queue_dma_alignment(q, 511);
 	blk_queue_congestion_threshold(q);
@@ -200,7 +200,7 @@ EXPORT_SYMBOL(blk_queue_bounce_limit);
  *    Enables a low level driver to set an upper limit on the size of
  *    received requests.
  **/
-void blk_queue_max_sectors(struct request_queue *q, unsigned int max_sectors)
+void blk_queue_max_hw_sectors(struct request_queue *q, unsigned int max_sectors)
 {
 	if ((max_sectors << 9) < PAGE_CACHE_SIZE) {
 		max_sectors = 1 << (PAGE_CACHE_SHIFT - 9);
@@ -215,7 +215,7 @@ void blk_queue_max_sectors(struct request_queue *q, unsigned int max_sectors)
 		q->max_hw_sectors = max_sectors;
 	}
 }
-EXPORT_SYMBOL(blk_queue_max_sectors);
+EXPORT_SYMBOL(blk_queue_max_hw_sectors);
 
 /**
  * blk_queue_max_phys_segments - set max phys segments for a request for this queue
@@ -241,7 +241,7 @@ void blk_queue_max_phys_segments(struct request_queue *q,
 EXPORT_SYMBOL(blk_queue_max_phys_segments);
 
 /**
- * blk_queue_max_hw_segments - set max hw segments for a request for this queue
+ * blk_queue_max_segments - set max hw segments for a request for this queue
  * @q:  the request queue for the device
  * @max_segments:  max number of segments
  *
@@ -251,7 +251,7 @@ EXPORT_SYMBOL(blk_queue_max_phys_segments);
  *    address/length pairs the host adapter can actually give at once
  *    to the device.
  **/
-void blk_queue_max_hw_segments(struct request_queue *q,
+void blk_queue_max_segments(struct request_queue *q,
 			       unsigned short max_segments)
 {
 	if (!max_segments) {
@@ -262,7 +262,7 @@ void blk_queue_max_hw_segments(struct request_queue *q,
 
 	q->max_hw_segments = max_segments;
 }
-EXPORT_SYMBOL(blk_queue_max_hw_segments);
+EXPORT_SYMBOL(blk_queue_max_segments);
 
 /**
  * blk_queue_max_segment_size - set max segment size for blk_rq_map_sg
