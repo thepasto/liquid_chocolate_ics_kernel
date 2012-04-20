@@ -34,6 +34,7 @@
 #include <linux/highmem.h>
 #include <linux/mmc/host.h>
 #include <linux/scatterlist.h>
+#include <linux/slab.h>
 
 #include <asm/io.h>
 #include <asm/dma.h>
@@ -1818,7 +1819,7 @@ static int wbsd_suspend(struct wbsd_host *host, pm_message_t state)
 {
 	BUG_ON(host == NULL);
 
-	return mmc_suspend_host(host->mmc, state);
+	return mmc_suspend_host(host->mmc);
 }
 
 static int wbsd_resume(struct wbsd_host *host)
@@ -2036,7 +2037,7 @@ module_param_named(irq, param_irq, uint, 0444);
 module_param_named(dma, param_dma, int, 0444);
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Pierre Ossman <drzeus@drzeus.cx>");
+MODULE_AUTHOR("Pierre Ossman <pierre@ossman.eu>");
 MODULE_DESCRIPTION("Winbond W83L51xD SD/MMC card interface driver");
 
 #ifdef CONFIG_PNP
