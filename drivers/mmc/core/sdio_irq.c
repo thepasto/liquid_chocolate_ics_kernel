@@ -13,7 +13,6 @@
  * your option) any later version.
  */
 
-#define DEBUG
 #include <linux/kernel.h>
 #include <linux/sched.h>
 #include <linux/kthread.h>
@@ -162,7 +161,6 @@ static int sdio_card_irq_get(struct mmc_card *card)
 		host->sdio_irq_thread =
 			kthread_run(sdio_irq_thread, host, "ksdioirqd/%s",
 				mmc_hostname(host));
-		printk(KERN_INFO "%s: create sdio_irq_thread successfully\n", mmc_hostname(host));
 		if (IS_ERR(host->sdio_irq_thread)) {
 			int err = PTR_ERR(host->sdio_irq_thread);
 			host->sdio_irqs--;
@@ -183,7 +181,6 @@ static int sdio_card_irq_put(struct mmc_card *card)
 	if (!--host->sdio_irqs) {
 		atomic_set(&host->sdio_irq_thread_abort, 1);
 		kthread_stop(host->sdio_irq_thread);
-		printk(KERN_INFO "%s: sdio_irq_thread was stopped\n", mmc_hostname(host));
 	}
 
 	return 0;

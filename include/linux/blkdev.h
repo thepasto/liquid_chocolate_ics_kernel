@@ -861,6 +861,11 @@ static inline unsigned int blk_rq_cur_sectors(const struct request *rq)
 	return rq->hard_cur_sectors;
 }
 
+
+extern struct request *blk_fetch_request(struct request_queue *q);
+extern void __blk_end_request_all(struct request *rq, int error);
+
+
 /*
  * Access functions for manipulating queue properties
  */
@@ -870,12 +875,16 @@ extern struct request_queue *blk_init_queue(request_fn_proc *, spinlock_t *);
 extern void blk_cleanup_queue(struct request_queue *);
 extern void blk_queue_make_request(struct request_queue *, make_request_fn *);
 extern void blk_queue_bounce_limit(struct request_queue *, u64);
-extern void blk_queue_max_sectors(struct request_queue *, unsigned int);
+extern void blk_queue_max_hw_sectors(struct request_queue *, unsigned int);
 extern void blk_queue_max_phys_segments(struct request_queue *, unsigned short);
-extern void blk_queue_max_hw_segments(struct request_queue *, unsigned short);
+extern void blk_queue_max_segments(struct request_queue *, unsigned short);
 extern void blk_queue_max_segment_size(struct request_queue *, unsigned int);
 extern void blk_queue_hardsect_size(struct request_queue *, unsigned short);
 extern void blk_queue_stack_limits(struct request_queue *t, struct request_queue *b);
+
+extern void blk_queue_logical_block_size(struct request_queue *, unsigned short);
+
+
 extern void blk_queue_dma_pad(struct request_queue *, unsigned int);
 extern void blk_queue_update_dma_pad(struct request_queue *, unsigned int);
 extern int blk_queue_dma_drain(struct request_queue *q,
