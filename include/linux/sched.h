@@ -428,6 +428,8 @@ extern int get_dumpable(struct mm_struct *mm);
 # define MMF_DUMP_MASK_DEFAULT_ELF	0
 #endif
 
+#define MMF_VM_MERGEABLE	16	/* KSM may merge identical pages */
+
 struct sighand_struct {
 	atomic_t		count;
 	struct k_sigaction	action[_NSIG];
@@ -1621,6 +1623,7 @@ extern int task_free_unregister(struct notifier_block *n);
 #define PF_FSTRANS	0x00020000	/* inside a filesystem transaction */
 #define PF_KSWAPD	0x00040000	/* I am kswapd */
 #define PF_SWAPOFF	0x00080000	/* I am in swapoff */
+#define PF_OOM_ORIGIN	0x00080000	/* Allocating much memory to others */
 #define PF_LESS_THROTTLE 0x00100000	/* Throttle me less: I clean memory */
 #define PF_KTHREAD	0x00200000	/* I am a kernel thread */
 #define PF_RANDOMIZE	0x00400000	/* randomize virtual address space */
