@@ -146,6 +146,7 @@ msm_i2c_interrupt(int irq, void *devid)
 #endif
 
 #if defined (CONFIG_MACH_ACER_A1)
+	udelay(10);
 	pm_qos_update_requirement(PM_QOS_CPU_DMA_LATENCY, "msm_i2c", 501);
 #endif
 
