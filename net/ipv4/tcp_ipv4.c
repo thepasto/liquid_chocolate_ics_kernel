@@ -1857,6 +1857,7 @@ EXPORT_SYMBOL(tcp_v4_destroy_sock);
 /*
  * tcp_v4_nuke_addr - destroy all sockets on the given local address
  */
+
 void tcp_v4_nuke_addr(__u32 saddr)
 {
 	unsigned int bucket;
@@ -1896,7 +1897,6 @@ restart:
 		spin_unlock_bh(lock);
 	}
 }
-
 #ifdef CONFIG_PROC_FS
 /* Proc filesystem TCP sock list dumping. */
 

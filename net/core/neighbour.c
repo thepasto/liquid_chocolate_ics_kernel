@@ -1209,13 +1209,10 @@ int neigh_resolve_output(struct sk_buff *skb)
 					      neigh->ha, NULL, skb->len);
 			read_unlock_bh(&neigh->lock);
 		}
-		if (err >= 0 && skb != NULL)
+		if (err >= 0)
 			rc = neigh->ops->queue_xmit(skb);
-		else {
-			if(skb == NULL)
-			    printk(KERN_EMERG "%s: skb is NULL\n", __FUNCTION__);
+		else
 			goto out_kfree_skb;
-		}
 	}
 out:
 	return rc;
@@ -1350,10 +1347,6 @@ struct neigh_parms *neigh_parms_alloc(struct net_device *dev,
 		}
 
 		dev_hold(dev);
-		if (strnicmp((char *)&dev->name, "eth0", 4) == 0) {
-			printk(KERN_EMERG "%s: hold. Usage count = %d (net\\core\\neighbour.c 1349)\n",
-			dev->name, atomic_read(&dev->refcnt));
-		}
 		p->dev = dev;
 		write_pnet(&p->net, hold_net(net));
 		p->sysctl_table = NULL;
@@ -1386,13 +1379,8 @@ void neigh_parms_release(struct neigh_table *tbl, struct neigh_parms *parms)
 			*p = parms->next;
 			parms->dead = 1;
 			write_unlock_bh(&tbl->lock);
-			if (parms->dev) {
+			if (parms->dev)
 				dev_put(parms->dev);
-				if (strnicmp((char *)&parms->dev->name, "eth0", 4) == 0) {
-					printk(KERN_EMERG "%s: put. Usage count = %d (net\\core\\neighbour.c 1387)\n",
-					parms->dev->name, atomic_read(&parms->dev->refcnt));
-				}
-			}
 			call_rcu(&parms->rcu_head, neigh_rcu_free_parms);
 			return;
 		}

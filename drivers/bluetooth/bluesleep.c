@@ -111,7 +111,7 @@ static int bluesleep_hci_event(struct notifier_block *this,
  */
 
 /** Global state flags */
-static volatile unsigned long flags;
+static unsigned long flags;
 
 /** Tasklet to respond to change in hostwake line */
 static struct tasklet_struct hostwake_task;
@@ -167,10 +167,6 @@ void bluesleep_sleep_wakeup(void)
 		clear_bit(BT_ASLEEP, &flags);
 		/*Activating UART */
 		hsuart_power(1);
-	}else if(gpio_get_value(bsi->ext_wake)){
-		BT_DBG("BT_WAKE is deasserted but BT_ASLEEP flag is not set, asserting BT_WAKE again");
-		mod_timer(&tx_timer, jiffies + (TX_TIMER_INTERVAL * HZ));
-		gpio_set_value(bsi->ext_wake, 0);
 	}
 }
 

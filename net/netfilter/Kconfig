@@ -671,6 +671,8 @@ config NETFILTER_XT_MATCH_OWNER
 	based on who created the socket: the user or group. It is also
 	possible to check whether a socket actually exists.
 
+	Conflicts with '"quota, tag, uid" match'
+
 config NETFILTER_XT_MATCH_POLICY
 	tristate 'IPsec "policy" match support'
 	depends on XFRM
@@ -753,7 +755,6 @@ config NETFILTER_XT_MATCH_QUOTA2_LOG
 	  It logs similarly to how ipt_ULOG would without data.
 
 	  If unsure, say `N'.
-
 
 config NETFILTER_XT_MATCH_RATEEST
 	tristate '"rateest" match support'

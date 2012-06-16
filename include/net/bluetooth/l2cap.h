@@ -1,6 +1,7 @@
 /* 
    BlueZ - Bluetooth protocol stack for Linux
    Copyright (C) 2000-2001 Qualcomm Incorporated
+   Copyright 2010, Sony Ericsson Mobile Communications AB
 
    Written 2000,2001 by Maxim Krasnyansky <maxk@qualcomm.com>
 
@@ -62,7 +63,6 @@ struct l2cap_conninfo {
 #define L2CAP_LM_TRUSTED	0x0008
 #define L2CAP_LM_RELIABLE	0x0010
 #define L2CAP_LM_SECURE		0x0020
-#define L2CAP_LM_FLUSHABLE	0x0040
 
 /* L2CAP command codes */
 #define L2CAP_COMMAND_REJ 0x01
@@ -246,7 +246,6 @@ struct l2cap_pinfo {
 	__u8            sec_level;
 	__u8		role_switch;
 	__u8            force_reliable;
-	__u8            flushable;
 
 	__u8		conf_req[64];
 	__u8		conf_len;
@@ -265,6 +264,7 @@ struct l2cap_pinfo {
 #define L2CAP_CONF_REQ_SENT	0x01
 #define L2CAP_CONF_INPUT_DONE	0x02
 #define L2CAP_CONF_OUTPUT_DONE	0x04
+#define L2CAP_CONF_CONNECT_REQ_SENT	0x40
 #define L2CAP_CONF_CONNECT_PEND	0x80
 
 #define L2CAP_CONF_MAX_RETRIES	2

@@ -5,6 +5,7 @@
  *  protocol extension to H4.
  *
  *  Copyright (C) 2007 Texas Instruments, Inc.
+ *  Copyright (C) 2010 Sony Ericsson Mobile Communications AB.
  *
  *  Written by Ohad Ben-Cohen <ohad@bencohen.org>
  *
@@ -90,6 +91,7 @@ struct ll_struct {
 #ifdef CONFIG_SERIAL_MSM_HS
 void msm_hs_request_clock_off(struct uart_port *uport);
 void msm_hs_request_clock_on(struct uart_port *uport);
+void msm_hs_set_mctrl_locked(struct uart_port *uport, unsigned int mctrl);
 
 static void __ll_msm_serial_clock_on(struct tty_struct *tty) {
 	struct uart_state *state = tty->driver_data;
@@ -104,10 +106,20 @@ static void __ll_msm_serial_clock_request_off(struct tty_struct *tty) {
 
 	msm_hs_request_clock_off(port);
 }
+
+static void __ll_msm_serial_set_rts(struct tty_struct *tty) {
+	struct uart_state *state = tty->driver_data;
+	struct uart_port *port = state->port;
+
+	msm_hs_set_mctrl_locked(port, 0);
+}
 #else
 static inline void __ll_msm_serial_clock_on(struct tty_struct *tty) {}
 static inline void __ll_msm_serial_clock_request_off(struct tty_struct *tty) {}
+static inline void __ll_msm_serial_set_rts(struct tty_struct *tty) {}
 #endif
+
+static int ll_enqueue(struct hci_uart *hu, struct sk_buff *skb);
 
 /*
  * Builds and sends an HCILL command packet.
@@ -141,6 +153,37 @@ out:
 	return err;
 }
 
+static const u8 enable_deep_sleep_command[] = {
+	[0] = 0x0C, [1] = 0xFD,	/* HCI_VS_SLEEP_MODE_CONFIGURATION */
+	[2] = 0x09,			/* Parameters length */
+	[3] = 0x01,			/* Big sleep enable */
+	[4] = 0x01,			/* Deep sleep enable */
+	[5] = 0x00,			/* Deep sleep mode */
+	[6] = 0xFF,			/* Output I/O select */
+	[7] = 0xFF,			/* Output pull enable */
+	[8] = 0xFF,			/* Input pull enable */
+	[9] = 0xFF,			/* Input I/O select */
+	[10] = 0x64, [11] = 0x00	/* Reserved */
+};
+
+static int ll_enable_deep_sleep(struct hci_uart *hu)
+{
+	struct sk_buff *skb = NULL;
+
+	skb = bt_skb_alloc(HCI_MAX_FRAME_SIZE, GFP_ATOMIC);
+	if (!skb) {
+		BT_ERR("Can't allocate mem for the deep sleep command packet");
+		return -ENOMEM;
+	}
+
+	skb->dev = (void *)hu->hdev;
+	bt_cb(skb)->pkt_type = HCI_COMMAND_PKT;
+	memcpy(skb_put(skb, sizeof(enable_deep_sleep_command)), \
+		enable_deep_sleep_command, sizeof(enable_deep_sleep_command));
+
+	return ll_enqueue(hu, skb);
+}
+
 /* Initialize protocol */
 static int ll_open(struct hci_uart *hu)
 {
@@ -160,7 +203,7 @@ static int ll_open(struct hci_uart *hu)
 
 	hu->priv = ll;
 
-	return 0;
+	return ll_enable_deep_sleep(hu);
 }
 
 /* Flush protocol data */
@@ -292,6 +335,7 @@ static void ll_device_want_to_sleep(struct hci_uart *hu)
 	/* update state */
 	ll->hcill_state = HCILL_ASLEEP;
 
+	__ll_msm_serial_set_rts(hu->tty);
 out:
 	spin_unlock_irqrestore(&ll->hcill_lock, flags);
 

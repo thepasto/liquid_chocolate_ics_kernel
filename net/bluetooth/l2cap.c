@@ -1,6 +1,7 @@
 /*
    BlueZ - Bluetooth protocol stack for Linux
    Copyright (C) 2000-2001 Qualcomm Incorporated
+   Copyright 2010, Sony Ericsson Mobile Communications AB
 
    Written 2000,2001 by Maxim Krasnyansky <maxk@qualcomm.com>
 
@@ -325,7 +326,7 @@ static inline int l2cap_send_cmd(struct l2cap_conn *conn, u8 ident, u8 code, u16
 	if (!skb)
 		return -ENOMEM;
 
-	return hci_send_acl(conn->hcon, skb, ACL_START);
+	return hci_send_acl(conn->hcon, skb, 0);
 }
 
 static void l2cap_do_start(struct sock *sk)
@@ -345,6 +346,7 @@ static void l2cap_do_start(struct sock *sk)
 
 			l2cap_send_cmd(conn, l2cap_pi(sk)->ident,
 					L2CAP_CONN_REQ, sizeof(req), &req);
+			l2cap_pi(sk)->conf_state |= L2CAP_CONF_CONNECT_REQ_SENT;
 		}
 	} else {
 		struct l2cap_info_req req;
@@ -389,6 +391,7 @@ static void l2cap_conn_start(struct l2cap_conn *conn)
 
 				l2cap_send_cmd(conn, l2cap_pi(sk)->ident,
 					L2CAP_CONN_REQ, sizeof(req), &req);
+				l2cap_pi(sk)->conf_state |= L2CAP_CONF_CONNECT_REQ_SENT;
 			}
 		} else if (sk->sk_state == BT_CONNECT2) {
 			struct l2cap_conn_rsp rsp;
@@ -714,14 +717,12 @@ static void l2cap_sock_init(struct sock *sk, struct sock *parent)
 		pi->sec_level = l2cap_pi(parent)->sec_level;
 		pi->role_switch = l2cap_pi(parent)->role_switch;
 		pi->force_reliable = l2cap_pi(parent)->force_reliable;
-		pi->flushable = l2cap_pi(parent)->flushable;
 	} else {
 		pi->imtu = L2CAP_DEFAULT_MTU;
 		pi->omtu = 0;
 		pi->sec_level = BT_SECURITY_LOW;
 		pi->role_switch = 0;
 		pi->force_reliable = 0;
-		pi->flushable = 0;
 	}
 
 	/* Default config options */
@@ -892,7 +893,7 @@ static int l2cap_do_connect(struct sock *sk)
 		}
 	}
 
-	hcon = hci_connect(hdev, ACL_LINK, 0, dst,
+	hcon = hci_connect(hdev, ACL_LINK, dst,
 					l2cap_pi(sk)->sec_level, auth_type);
 	if (!hcon)
 		goto done;
@@ -1118,7 +1119,6 @@ static inline int l2cap_do_send(struct sock *sk, struct msghdr *msg, int len)
 	struct sk_buff *skb, **frag;
 	int err, hlen, count, sent=0;
 	struct l2cap_hdr *lh;
-	u16 flags;
 
 	BT_DBG("sk %p len %d", sk, len);
 
@@ -1171,12 +1171,7 @@ static inline int l2cap_do_send(struct sock *sk, struct msghdr *msg, int len)
 		frag = &(*frag)->next;
 	}
 
-	if (l2cap_pi(sk)->flushable)
-		flags = ACL_START_FLUSHABLE;
-	else
-		flags = ACL_START;
-
-	if ((err = hci_send_acl(conn->hcon, skb, flags)) < 0)
+	if ((err = hci_send_acl(conn->hcon, skb, 0)) < 0)
 		goto fail;
 
 	return sent;
@@ -1285,7 +1280,6 @@ static int l2cap_sock_setsockopt_old(struct socket *sock, int optname, char __us
 
 		l2cap_pi(sk)->role_switch    = (opt & L2CAP_LM_MASTER);
 		l2cap_pi(sk)->force_reliable = (opt & L2CAP_LM_RELIABLE);
-		l2cap_pi(sk)->flushable = (opt & L2CAP_LM_FLUSHABLE);
 		break;
 
 	default:
@@ -1411,9 +1405,6 @@ static int l2cap_sock_getsockopt_old(struct socket *sock, int optname, char __us
 
 		if (l2cap_pi(sk)->force_reliable)
 			opt |= L2CAP_LM_RELIABLE;
-
-		if (l2cap_pi(sk)->flushable)
-			opt |= L2CAP_LM_FLUSHABLE;
 
 		if (put_user(opt, (u32 __user *) optval))
 			err = -EFAULT;
@@ -1984,6 +1975,8 @@ static inline int l2cap_connect_rsp(struct l2cap_conn *conn, struct l2cap_cmd_hd
 		if (!(sk = l2cap_get_chan_by_ident(&conn->chan_list, cmd->ident)))
 			return 0;
 	}
+
+	l2cap_pi(sk)->conf_state &= ~L2CAP_CONF_CONNECT_REQ_SENT;
 
 	switch (result) {
 	case L2CAP_CR_SUCCESS:
@@ -2561,7 +2554,8 @@ static int l2cap_security_cfm(struct hci_conn *hcon, u8 status, u8 encrypt)
 	for (sk = l->head; sk; sk = l2cap_pi(sk)->next_c) {
 		bh_lock_sock(sk);
 
-		if (l2cap_pi(sk)->conf_state & L2CAP_CONF_CONNECT_PEND) {
+		if (l2cap_pi(sk)->conf_state &
+			(L2CAP_CONF_CONNECT_PEND | L2CAP_CONF_CONNECT_REQ_SENT)) {
 			bh_unlock_sock(sk);
 			continue;
 		}
@@ -2583,6 +2577,7 @@ static int l2cap_security_cfm(struct hci_conn *hcon, u8 status, u8 encrypt)
 
 				l2cap_send_cmd(conn, l2cap_pi(sk)->ident,
 					L2CAP_CONN_REQ, sizeof(req), &req);
+				l2cap_pi(sk)->conf_state |= L2CAP_CONF_CONNECT_REQ_SENT;
 			} else {
 				l2cap_sock_clear_timer(sk);
 				l2cap_sock_set_timer(sk, HZ / 10);
@@ -2625,7 +2620,7 @@ static int l2cap_recv_acldata(struct hci_conn *hcon, struct sk_buff *skb, u16 fl
 
 	BT_DBG("conn %p len %d flags 0x%x", conn, skb->len, flags);
 
-	if (!(flags & ACL_CONT)) {
+	if (flags & ACL_START) {
 		struct l2cap_hdr *hdr;
 		int len;
 

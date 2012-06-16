@@ -360,10 +360,10 @@ static void hci_uart_tty_receive(struct tty_struct *tty, const u8 *data, char *f
 	if (!test_bit(HCI_UART_PROTO_SET, &hu->flags))
 		return;
 
-	spin_lock_bh(&hu->rx_lock);
+	spin_lock(&hu->rx_lock);
 	hu->proto->recv(hu, (void *) data, count);
 	hu->hdev->stat.byte_rx += count;
-	spin_unlock_bh(&hu->rx_lock);
+	spin_unlock(&hu->rx_lock);
 
 	tty_unthrottle(tty);
 }
@@ -463,7 +463,6 @@ static int hci_uart_tty_ioctl(struct tty_struct *tty, struct file * file,
 				clear_bit(HCI_UART_PROTO_SET, &hu->flags);
 				return err;
 			}
-			tty->low_latency = 1;
 		} else
 			return -EBUSY;
 		break;

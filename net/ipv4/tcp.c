@@ -421,7 +421,7 @@ unsigned int tcp_poll(struct file *file, struct socket *sock, poll_table *wait)
 	smp_rmb();
 	if (sk->sk_err)
 		mask |= POLLERR;
-	
+
 	return mask;
 }
 

@@ -321,10 +321,6 @@ void in6_dev_finish_destroy(struct inet6_dev *idev)
 	printk(KERN_DEBUG "in6_dev_finish_destroy: %s\n", dev ? dev->name : "NIL");
 #endif
 	dev_put(dev);
-	if (strnicmp((char *)&dev->name, "eth0", 4) == 0) {
-		printk(KERN_EMERG "%s: put. Usage count = %d (net\\core\\ipv6\\addrconf.c 323)\n",
-		dev->name, atomic_read(&dev->refcnt));
-	}
 	if (!idev->dead) {
 		printk("Freeing alive inet6 device %p\n", idev);
 		return;
@@ -363,10 +359,7 @@ static struct inet6_dev * ipv6_add_dev(struct net_device *dev)
 		dev_disable_lro(dev);
 	/* We refer to the device */
 	dev_hold(dev);
-	if (strnicmp((char *)&dev->name, "eth0", 4) == 0) {
-		printk(KERN_EMERG "%s: hold. Usage count = %d (net\\core\\ipv6\\addrconf.c 365)\n",
-		dev->name, atomic_read(&dev->refcnt));
-	}
+
 	if (snmp6_alloc_dev(ndev) < 0) {
 		ADBG((KERN_WARNING
 			"%s(): cannot allocate memory for statistics; dev=%s.\n",
@@ -1764,13 +1757,8 @@ static struct inet6_dev *addrconf_add_dev(struct net_device *dev)
 
 	ASSERT_RTNL();
 
-	idev = ipv6_find_idev(dev);
-	if (!idev)
-		return ERR_PTR(-ENOBUFS);
-
-	if (idev->cnf.disable_ipv6)
-		return ERR_PTR(-EACCES);
-
+	if ((idev = ipv6_find_idev(dev)) == NULL)
+		return NULL;
 
 	/* Add default multicast route */
 	addrconf_add_mroute(dev);
@@ -2115,9 +2103,8 @@ static int inet6_addr_add(struct net *net, int ifindex, struct in6_addr *pfx,
 	if (!dev)
 		return -ENODEV;
 
-	idev = addrconf_add_dev(dev);
-	if (IS_ERR(idev))
-		return PTR_ERR(idev);
+	if ((idev = addrconf_add_dev(dev)) == NULL)
+		return -ENOBUFS;
 
 	scope = ipv6_addr_scope(pfx);
 
@@ -2373,7 +2360,7 @@ static void addrconf_dev_config(struct net_device *dev)
 	}
 
 	idev = addrconf_add_dev(dev);
-	if (IS_ERR(idev))
+	if (idev == NULL)
 		return;
 
 	memset(&addr, 0, sizeof(struct in6_addr));
@@ -2463,8 +2450,7 @@ static void addrconf_ip6_tnl_config(struct net_device *dev)
 
 	ASSERT_RTNL();
 
-	idev = addrconf_add_dev(dev);
-	if (IS_ERR(idev)) {
+	if ((idev = addrconf_add_dev(dev)) == NULL) {
 		printk(KERN_DEBUG "init ip6-ip6: add_dev failed\n");
 		return;
 	}

@@ -126,6 +126,7 @@
 #include <linux/in.h>
 #include <linux/jhash.h>
 #include <linux/random.h>
+#include <linux/iface_stat.h>
 
 #include "net-sysfs.h"
 
@@ -4189,8 +4190,11 @@ static void rollback_registered(struct net_device *dev)
 	unlist_netdevice(dev);
 
 	dev->reg_state = NETREG_UNREGISTERING;
-
+	
+    /* Store stats for this device in persistent iface_stat */
 	synchronize_net();
+	
+	iface_stat_update(dev);
 
 	/* Shutdown queueing discipline. */
 	dev_shutdown(dev);
@@ -4218,10 +4222,6 @@ static void rollback_registered(struct net_device *dev)
 	synchronize_net();
 
 	dev_put(dev);
-	if (strnicmp((char *)&dev->name, "eth0", 4) == 0) {
-		printk(KERN_EMERG "%s: put. Usage count = %d (net\\core\\dev.c 4223)\n",
-		dev->name, atomic_read(&dev->refcnt));
-	}
 }
 
 static void __netdev_init_queue_locks_one(struct net_device *dev,
@@ -4434,10 +4434,6 @@ int register_netdevice(struct net_device *dev)
 
 	dev_init_scheduler(dev);
 	dev_hold(dev);
-	if (strnicmp((char *)&dev->name, "eth0", 4) == 0) {
-		printk(KERN_EMERG "%s: hold. Usage count = %d (net\\core\\dev.c 4439)\n",
-		dev->name, atomic_read(&dev->refcnt));
-	}
 	list_netdevice(dev);
 
 	/* Notify protocols, that a new device appeared. */
@@ -4546,9 +4542,6 @@ EXPORT_SYMBOL(register_netdev);
 static void netdev_wait_allrefs(struct net_device *dev)
 {
 	unsigned long rebroadcast_time, warning_time;
-	//This workaround is for the eth0 always being hold.
-	//Release it after 0.5 seconds (2*250ms=0.5sec).
-	int releaseEth0Count = 0;
 
 	rebroadcast_time = warning_time = jiffies;
 	while (atomic_read(&dev->refcnt) != 0) {
@@ -4582,17 +4575,6 @@ static void netdev_wait_allrefs(struct net_device *dev)
 			       "count = %d\n",
 			       dev->name, atomic_read(&dev->refcnt));
 			warning_time = jiffies;
-
-			//Workaround to release eth0 when turning off wifi.
-			if(releaseEth0Count==3 && (strnicmp((char *)&dev->name, "eth0", 4) == 0)) {
-			       dev_put(dev);
-			       printk(KERN_EMERG "%s: Usage releaseEth0Count = %d, the refcnt = %d\n",
-			       dev->name, releaseEth0Count, atomic_read(&dev->refcnt));
-			} else if (strnicmp((char *)&dev->name, "eth0", 4) == 0) {
-			       releaseEth0Count++;
-			       printk(KERN_EMERG "%s: Usage releaseEth0Count = %d\n",
-			       dev->name, releaseEth0Count);
-			}
 		}
 	}
 }

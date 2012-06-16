@@ -165,17 +165,8 @@ static inline int qdisc_restart(struct Qdisc *q)
 		if (unlikely (ret != NETDEV_TX_BUSY && net_ratelimit()))
 			printk(KERN_WARNING "BUG %s code %d qlen %d\n",
 			       dev->name, ret, q->q.qlen);
-		//[ENODEV] No such device. An attempt was made to apply an inappropriate function to a device
-		if (ret == -ENODEV) {
-			printk(KERN_EMERG "%s: STOP QUEUE. Reason = %d (-ENODEV) (net\\sched\\sch_generic.c 170)\n", dev->name, ret);
-			if (strnicmp((char *)&dev->name, "eth0", 4) == 0) {
-				//Stop upper layers calling the device hard_start_xmit routine.
-				//Used for flow control when transmit resources are unavailable.
-				ret = dev_requeue_skb(skb, q);
-				netif_stop_queue(dev);
-			}
-		} else
-			ret = dev_requeue_skb(skb, q);
+
+		ret = dev_requeue_skb(skb, q);
 		break;
 	}
 
@@ -499,10 +490,6 @@ struct Qdisc *qdisc_alloc(struct netdev_queue *dev_queue,
 	sch->dequeue = ops->dequeue;
 	sch->dev_queue = dev_queue;
 	dev_hold(qdisc_dev(sch));
-	if (strnicmp((char *)&qdisc_dev(sch)->name, "eth0", 4) == 0) {
-		printk(KERN_EMERG "%s: hold. Usage count = %d (net\\sched\\sch_generic.c 492)\n",
-		qdisc_dev(sch)->name, atomic_read(&qdisc_dev(sch)->refcnt));
-	}
 	atomic_set(&sch->refcnt, 1);
 
 	return sch;
@@ -566,10 +553,6 @@ void qdisc_destroy(struct Qdisc *qdisc)
 
 	module_put(ops->owner);
 	dev_put(qdisc_dev(qdisc));
-	if (strnicmp((char *)&qdisc_dev(qdisc)->name, "eth0", 4) == 0) {
-		printk(KERN_EMERG "%s: put. Usage count = %d (net\\sched\\sch_generic.c 559)\n",
-		qdisc_dev(qdisc)->name, atomic_read(&qdisc_dev(qdisc)->refcnt));
-	}
 
 	kfree_skb(qdisc->gso_skb);
 	kfree((char *) qdisc - qdisc->padded);

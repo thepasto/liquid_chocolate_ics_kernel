@@ -54,6 +54,7 @@
 #include <linux/sysctl.h>
 #endif
 #include <linux/kmod.h>
+#include <linux/iface_stat.h>
 
 #include <net/arp.h>
 #include <net/ip.h>
@@ -140,10 +141,6 @@ void in_dev_finish_destroy(struct in_device *idev)
 	       idev, dev ? dev->name : "NIL");
 #endif
 	dev_put(dev);
-	if (strnicmp((char *)&dev->name, "eth0", 4) == 0) {
-		printk(KERN_EMERG "%s: put. Usage count = %d (net\\core\\ipv4\\devinet.c 142)\n",
-		dev->name, atomic_read(&dev->refcnt));
-	}
 	if (!idev->dead)
 		printk("Freeing alive in_device %p\n", idev);
 	else {
@@ -170,10 +167,6 @@ static struct in_device *inetdev_init(struct net_device *dev)
 		dev_disable_lro(dev);
 	/* Reference in_dev->dev */
 	dev_hold(dev);
-	if (strnicmp((char *)&dev->name, "eth0", 4) == 0) {
-		printk(KERN_EMERG "%s: hold. Usage count = %d (net\\core\\ipv4\\devinet.c 172)\n",
-		dev->name, atomic_read(&dev->refcnt));
-	}
 	/* Account for reference dev->ip_ptr (below) */
 	in_dev_hold(in_dev);
 
@@ -380,6 +373,9 @@ static int __inet_insert_ifa(struct in_ifaddr *ifa, struct nlmsghdr *nlh,
 	   listeners of netlink will know about new ifaddr */
 	rtmsg_ifa(RTM_NEWADDR, ifa, nlh, pid);
 	blocking_notifier_call_chain(&inetaddr_chain, NETDEV_UP, ifa);
+
+	/* Start persistent interface stat monitoring. Ignores if loopback. */
+	create_iface_stat(in_dev);
 
 	return 0;
 }
