@@ -257,10 +257,19 @@ config SCSI_SCAN_ASYNC
 	  or async on the kernel's command line.
 
 config SCSI_WAIT_SCAN
-	tristate
+	tristate "create module which waits for SCSI scanning to finish"
 	default m
 	depends on SCSI
 	depends on MODULES
+	help
+	 When this module is loaded, it will do nothing else than wait for
+	 SCSI low-level drivers to finish asynchronous scanning for devices.
+	 This module will be called scsi_wait_scan.
+
+	 It's default and safe to create this module even if it's not used
+	 in your distro's init scripts. You can override this if you are
+	 really sure you don't need or want it. It does not make sense to
+	 compile this into the kernel with Y.
 
 menu "SCSI Transports"
 	depends on SCSI

@@ -945,6 +945,8 @@ static int ch_remove(struct device *dev)
 {
 	scsi_changer *ch = dev_get_drvdata(dev);
 
+	blk_queue_prep_rq(ch->device->request_queue, scsi_prep_fn);
+
 	spin_lock(&ch_index_lock);
 	idr_remove(&ch_index_idr, ch->minor);
 	spin_unlock(&ch_index_lock);
