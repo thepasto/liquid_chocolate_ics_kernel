@@ -85,6 +85,8 @@
 
 /* Vibrator */
 //#define VIB_DELAY_TIME        30
+static int VIB_DELAY_TIME = 30;
+
 void pmic_vibrator_on(struct work_struct *work);
 void pmic_vibrator_off(struct work_struct *work);
 
@@ -120,7 +122,6 @@ static struct mutex avr_mutex;
 static struct delayed_work led_wq;
 static struct delayed_work vib_wq;
 
-static int VIB_DELAY_TIME = 30;
 static int vibr=1;
 module_param(vibr, int, S_IRUGO | S_IWUSR | S_IWGRP);
 
@@ -210,13 +211,14 @@ static struct device_attribute avr_attrs =
 __ATTR(threshold, S_IRWXUGO,NULL, set_avr_sensitivity);
 
 static ssize_t set_avr_vibr(struct device *device,
-struct device_attribute *attr,
-const char *buf, size_t count)
+				struct device_attribute *attr,
+				const char *buf, size_t count)
 {
-VIB_DELAY_TIME = ts_atoi(buf);
-pr_info("[AVR] Vibr = %d\n",ts_atoi(buf));
-return count;
+	VIB_DELAY_TIME = ts_atoi(buf);
+	pr_info("[AVR] Vibr = %d\n",ts_atoi(buf));
+	return count;
 }
+
 static struct device_attribute avr_vibr_attrs =
 __ATTR(vibr, S_IRWXUGO,NULL, set_avr_vibr);
 
@@ -353,7 +355,7 @@ static int avr_probe(struct i2c_client *client, const struct i2c_device_id *id)
 
 	if(device_create_file(&client->dev, &avr_vibr_attrs))
 		pr_err("[AVR] device_create_file avr_vibr_attrs error \n");
-		
+
 	if(device_create_file(&client->dev, &avr_fw_attrs))
 		pr_err("[AVR] device_create_file avr_fw_attrs error \n");
 #endif
@@ -390,14 +392,11 @@ static void avr_early_suspend(struct early_suspend *h)
 	kpd_resume_check = false;
 	avr_data.suspended=1;
 	key_clear(avr_data.client);
-
-	mdelay(10);
-
+	led_off(avr_data.client);
 	disable_irq(avr_data.client->irq);
 	low_power_mode(avr_data.client, 1);
 
 	pr_debug("[AVR] %s -- leaving\n", __FUNCTION__);
-	led_on(avr_data.client); //blink to fixed softkey led patch
 }
 
 static void avr_early_resume(struct early_suspend *h)
@@ -472,7 +471,7 @@ static void avr_work_func(struct work_struct *work)
 		mutex_unlock(&avr_mutex);
 		return;
 	}
-	
+
 	cancel_delayed_work(&led_wq);
 
 	/* TODO: Check KPD LED Function */
@@ -822,10 +821,10 @@ static void avr_vib_work_func(struct work_struct *work) {
 //Blinking code
 
 static struct delayed_work blink_wq;
-//static int status=0; //blink to fixed softkey led patch
+static int status=0;
 
 void avr_blink(int value) {
-	//status=0; //blink to fixed softkey led patch
+	status=0;
 	if(value) {
 		if(avr_data.suspended)
 			low_power_mode(avr_data.client, 0);
@@ -844,16 +843,16 @@ void avr_blink(int value) {
 }
 
 static void blink_work_func(struct work_struct *work) {
-	/* status=!status;
+	status=!status;
 	if(status) {
-		printk("Blink turning on\n"); */ //blink to fixed softkey led patch
+		printk("Blink turning on\n");
 		led_on(avr_data.client);
-		/* schedule_delayed_work(&blink_wq, msecs_to_jiffies(500));
+		schedule_delayed_work(&blink_wq, msecs_to_jiffies(500));
 	} else {
 		printk("Blink turning off\n");
 		led_off(avr_data.client);
 		schedule_delayed_work(&blink_wq, msecs_to_jiffies(4500));
-	} */ //blink to fixed softkey led patch
+	}
 }
 
 static int __init avr_init(void)

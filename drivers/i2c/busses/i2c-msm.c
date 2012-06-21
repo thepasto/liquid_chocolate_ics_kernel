@@ -146,14 +146,14 @@ msm_i2c_interrupt(int irq, void *devid)
 #endif
 
 #if defined (CONFIG_MACH_ACER_A1)
-	if ((readl(dev->base + I2C_INTERFACE_SELECT) & I2C_INTERFACE_SELECT_SCL) != 0) {
+/*	if ((readl(dev->base + I2C_INTERFACE_SELECT) & I2C_INTERFACE_SELECT_SCL) != 0) {
 		if (get_address(dev) == 0xcc){
 			udelay(10);
 		}
-		/*else {
+		else {
 			udelay(2);
-		}*/
-}
+		}
+}*/
 	pm_qos_update_requirement(PM_QOS_CPU_DMA_LATENCY, "msm_i2c", 501);
 #endif
 
