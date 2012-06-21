@@ -96,7 +96,7 @@ static int sixty = 60;
 static int neg_one = -1;
 #endif
 
-#if defined(CONFIG_DETECT_SOFTLOCKUP) || defined(CONFIG_HIGHMEM)
+#if defined(CONFIG_DETECT_SOFTLOCKUP) || defined(CONFIG_HIGHMEM) || defined(CONFIG_SCHED_AUTOGROUP)
 static int one = 1;
 #endif
 

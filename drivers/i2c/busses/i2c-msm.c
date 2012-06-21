@@ -118,6 +118,18 @@ dump_status(uint32_t status)
 }
 #endif
 
+static void msm_i2c_write_delay(struct msm_i2c_dev *dev)
+{
+       /* If scl is still high we have >4us (for 100kbps) to write the data
+        * register before we risk hitting a bug where the controller releases
+        * scl to soon after driving sda low. Writing the data after the
+        * scheduled release time for scl also avoids the bug.
+        */
+       if (readl(dev->base + I2C_INTERFACE_SELECT) & I2C_INTERFACE_SELECT_SCL)
+               return;
+       udelay(6);
+}
+
 #if defined (CONFIG_MACH_ACER_A1)
 uint16_t get_address(struct msm_i2c_dev *dev)
 {
@@ -146,14 +158,11 @@ msm_i2c_interrupt(int irq, void *devid)
 #endif
 
 #if defined (CONFIG_MACH_ACER_A1)
-/*	if ((readl(dev->base + I2C_INTERFACE_SELECT) & I2C_INTERFACE_SELECT_SCL) != 0) {
+
 		if (get_address(dev) == 0xcc){
 			udelay(10);
 		}
-		else {
-			udelay(2);
-		}
-}*/
+
 	pm_qos_update_requirement(PM_QOS_CPU_DMA_LATENCY, "msm_i2c", 501);
 #endif
 
@@ -580,6 +589,7 @@ msm_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[], int num)
 					dev->base + I2C_WRITE_DATA);
 			spin_unlock_irqrestore(&dev->lock, flags);
 		} else {
+			msm_i2c_write_delay(dev);
 			writel(I2C_WRITE_DATA_ADDR_BYTE | addr,
 					 dev->base + I2C_WRITE_DATA);
 		}
@@ -606,6 +616,7 @@ wait_for_int:
 			if (t_status & I2C_STATUS_RD_BUFFER_FULL)
 				readl(dev->base + I2C_READ_DATA);
 			if (t_status) {
+				msm_i2c_write_delay(dev);
 				writel(I2C_WRITE_DATA_LAST_BYTE,
 					dev->base + I2C_WRITE_DATA);
 				msleep(100);
