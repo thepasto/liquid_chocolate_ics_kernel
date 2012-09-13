@@ -100,7 +100,7 @@ void mlock_vma_page(struct page *page)
  * not get another chance to clear PageMlocked.  If we successfully
  * isolate the page and try_to_munlock() detects other VM_LOCKED vmas
  * mapping the page, it will restore the PageMlocked state, unless the page
- * is mapped in a non-linear vma.  So, we go ahead and ClearPageMlocked(),
+ * is mapped in a non-linear vma.  So, we go ahead and SetPageMlocked(),
  * perhaps redundantly.
  * If we lose the isolation race, and the page is mapped by other VM_LOCKED
  * vmas, we'll detect this in vmscan--via try_to_munlock() or try_to_unmap()
@@ -331,6 +331,7 @@ no_mlock:
 	vma->vm_flags &= ~VM_LOCKED;	/* and don't come back! */
 	return nr_pages;		/* error or pages NOT mlocked */
 }
+
 
 /*
  * munlock_vma_pages_range() - munlock all pages in the vma range.'
