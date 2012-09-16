@@ -10,7 +10,6 @@
 #include <linux/debugfs.h>
 #include <linux/fs.h>
 #include <linux/seq_file.h>
-#include <linux/slab.h>
 #include <linux/stat.h>
 
 #include <linux/mmc/card.h>
@@ -241,7 +240,7 @@ static int mmc_ext_csd_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
-static const struct file_operations mmc_dbg_ext_csd_fops = {
+static struct file_operations mmc_dbg_ext_csd_fops = {
 	.open		= mmc_ext_csd_open,
 	.read		= mmc_ext_csd_read,
 	.release	= mmc_ext_csd_release,

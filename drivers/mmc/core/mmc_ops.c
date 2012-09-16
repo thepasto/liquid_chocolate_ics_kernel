@@ -9,7 +9,6 @@
  * your option) any later version.
  */
 
-#include <linux/slab.h>
 #include <linux/types.h>
 #include <linux/scatterlist.h>
 
@@ -56,42 +55,6 @@ int mmc_select_card(struct mmc_card *card)
 int mmc_deselect_cards(struct mmc_host *host)
 {
 	return _mmc_select_card(host, NULL);
-}
-
-int mmc_card_sleepawake(struct mmc_host *host, int sleep)
-{
-	struct mmc_command cmd;
-	struct mmc_card *card = host->card;
-	int err;
-
-	if (sleep)
-		mmc_deselect_cards(host);
-
-	memset(&cmd, 0, sizeof(struct mmc_command));
-
-	cmd.opcode = MMC_SLEEP_AWAKE;
-	cmd.arg = card->rca << 16;
-	if (sleep)
-		cmd.arg |= 1 << 15;
-
-	cmd.flags = MMC_RSP_R1B | MMC_CMD_AC;
-	err = mmc_wait_for_cmd(host, &cmd, 0);
-	if (err)
-		return err;
-
-	/*
-	 * If the host does not wait while the card signals busy, then we will
-	 * will have to wait the sleep/awake timeout.  Note, we cannot use the
-	 * SEND_STATUS command to poll the status because that command (and most
-	 * others) is invalid while the card sleeps.
-	 */
-	if (!(host->caps & MMC_CAP_WAIT_WHILE_BUSY))
-		mmc_delay(DIV_ROUND_UP(card->ext_csd.sa_timeout, 10000));
-
-	if (!sleep)
-		err = mmc_select_card(card);
-
-	return err;
 }
 
 int mmc_go_idle(struct mmc_host *host)
@@ -391,7 +354,6 @@ int mmc_switch(struct mmc_card *card, u8 set, u8 index, u8 value)
 {
 	int err;
 	struct mmc_command cmd;
-	u32 status;
 
 	BUG_ON(!card);
 	BUG_ON(!card->host);
@@ -408,30 +370,7 @@ int mmc_switch(struct mmc_card *card, u8 set, u8 index, u8 value)
 	err = mmc_wait_for_cmd(card->host, &cmd, MMC_CMD_RETRIES);
 	if (err)
 		return err;
-
 	mmc_delay(1);
-	/* Must check status to be sure of no errors */
-	do {
-		err = mmc_send_status(card, &status);
-		if (err)
-			return err;
-		if (card->host->caps & MMC_CAP_WAIT_WHILE_BUSY)
-			break;
-		if (mmc_host_is_spi(card->host))
-			break;
-	} while (R1_CURRENT_STATE(status) == 7);
-
-	if (mmc_host_is_spi(card->host)) {
-		if (status & R1_SPI_ILLEGAL_COMMAND)
-			return -EBADMSG;
-	} else {
-		if (status & 0xFDFFA000)
-			printk(KERN_WARNING "%s: unexpected status %#x after "
-			       "switch", mmc_hostname(card->host), status);
-		if (status & R1_SWITCH_ERROR)
-			return -EBADMSG;
-	}
-
 	return 0;
 }
 
@@ -463,142 +402,3 @@ int mmc_send_status(struct mmc_card *card, u32 *status)
 	return 0;
 }
 
-static int mmc_bustest_write(struct mmc_host *host,
-				 struct mmc_card *card, int buswidth)
-{
-	struct mmc_request mrq;
-	struct mmc_command cmd;
-	struct mmc_data data;
-	struct scatterlist sg;
-	int bustest_send_pat[4] = { 0x80, 0x0, 0x5A, 0x55AA };
-	u32 *test_pat;
-	int err = 0;
-
-	test_pat = kmalloc(512, GFP_KERNEL);
-	if (test_pat == NULL)
-		return -ENOMEM;
-
-	memset(&mrq, 0, sizeof(struct mmc_request));
-	memset(&cmd, 0, sizeof(struct mmc_command));
-	memset(&data, 0, sizeof(struct mmc_data));
-
-	mrq.cmd = &cmd;
-	mrq.data = &data;
-
-	cmd.opcode = MMC_BUSTEST_W;
-	cmd.arg = 0;
-	cmd.flags = MMC_RSP_R1 | MMC_CMD_ADTC;
-
-	data.blksz = 4; /* Generic blksz that works for 8 / 4 / 1 bit modes */
-	data.blocks = 1;
-	data.flags = MMC_DATA_WRITE;
-	data.sg = &sg;
-	data.sg_len = 1;
-
-	/* The mmc bus test timeout is primarily dependent on mmc clock and
-	*  the host controller since the card acts as a loopback device as
-	*  there is no data is being written to/read from the card's memory.
-	*  Since the test will be conducted at the frequency of operation
-	*  (20 MHz or higher), 1ms timeout is more than adequate. The same
-	*  timeout values are used for read bustest as well.
-	*/
-	data.timeout_ns = 1000000;
-	data.timeout_clks = 0;
-
-	test_pat[0] = bustest_send_pat[buswidth];
-	mmc_set_bus_width(card->host, buswidth);
-	sg_init_one(&sg, test_pat, 4);
-
-	mmc_wait_for_req(host, &mrq);
-
-	pr_debug("%s: Test Pattern sent: 0x%x\n", __func__, test_pat[0]);
-	if (cmd.error || data.error) {
-		pr_err("%s: cmd.error : %d data.error: %d\n",
-			__func__, cmd.error, data.error);
-		err = -1;
-	}
-	kfree(test_pat);
-	return err;
-}
-
-static int mmc_bustest_read(struct mmc_host *host,
-				 struct mmc_card *card, int buswidth)
-{
-	struct mmc_request mrq;
-	struct mmc_command cmd;
-	struct mmc_data data;
-	struct scatterlist sg;
-	int bustest_recv_pat[4] = { 0x40, 0x0, 0xA5, 0xAA55 };
-	u32 *test_pat;
-	int err = 0;
-
-	test_pat = kmalloc(512, GFP_KERNEL);
-	if (test_pat == NULL)
-		return -ENOMEM;
-
-	memset(test_pat, 0, 512);
-	memset(&mrq, 0, sizeof(struct mmc_request));
-	memset(&cmd, 0, sizeof(struct mmc_command));
-	memset(&data, 0, sizeof(struct mmc_data));
-
-	mrq.cmd = &cmd;
-	mrq.data = &data;
-
-	cmd.opcode = MMC_BUSTEST_R;
-	cmd.arg = 0;
-	cmd.flags = MMC_RSP_R1 | MMC_CMD_ADTC;
-
-	data.blocks = 1;
-	data.flags = MMC_DATA_READ;
-	data.sg = &sg;
-	data.sg_len = 1;
-	data.timeout_ns = 1000000;
-	data.timeout_clks = 0;
-
-	if (buswidth == MMC_BUS_WIDTH_8) {
-		data.blksz = 8;
-		sg_init_one(&sg, test_pat, 8);
-	} else if (buswidth == MMC_BUS_WIDTH_4) {
-		data.blksz = 4;
-		sg_init_one(&sg, test_pat, 4);
-	} else {
-		data.blksz = 1;
-		sg_init_one(&sg, test_pat, 1);
-	}
-
-	mmc_wait_for_req(host, &mrq);
-
-	pr_debug("%s: Test pattern received: 0x%x\n", __func__, test_pat[0]);
-	if (cmd.error || data.error) {
-		pr_err("%s: cmd.error: %d  data.error: %d\n",
-			__func__, cmd.error, data.error);
-		err = -1;
-		goto cmderr;
-	}
-
-	if (test_pat[0] == bustest_recv_pat[buswidth])
-		pr_debug("%s: Bus test pass for buswidth:%d\n",
-						 __func__, buswidth);
-	else
-		err = -1;
-cmderr:
-	kfree(test_pat);
-	return err;
-}
-
-int mmc_bustest(struct mmc_host *host, struct mmc_card *card, int buswidth)
-{
-	int rc = 0;
-
-	rc = mmc_bustest_write(host, card, buswidth);
-	if (rc) {
-		pr_err("%s Bus test write Failed for buswidth: %d\n",
-							 __func__, buswidth);
-		return rc;
-	}
-	rc = mmc_bustest_read(host, card, buswidth);
-	if (rc)
-		pr_err("%s Bus test Read failed for buswidth: %d\n",
-							 __func__, buswidth);
-	return rc;
-}

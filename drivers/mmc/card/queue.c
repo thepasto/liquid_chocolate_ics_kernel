@@ -9,13 +9,14 @@
  * published by the Free Software Foundation.
  *
  */
-#include <linux/slab.h>
 #include <linux/module.h>
 #include <linux/blkdev.h>
 #include <linux/freezer.h>
 #include <linux/kthread.h>
 #include <linux/scatterlist.h>
+#include <linux/delay.h>
 
+#include <linux/mmc/mmc.h>
 #include <linux/mmc/card.h>
 #include <linux/mmc/host.h>
 #include "queue.h"
@@ -48,13 +49,6 @@ static int mmc_queue_thread(void *d)
 	struct request_queue *q = mq->queue;
 	struct request *req;
 
-#ifdef CONFIG_MMC_PERF_PROFILING
-	ktime_t start, diff;
-	struct mmc_host *host = mq->card->host;
-	unsigned long bytes_xfer;
-#endif
-
-
 	current->flags |= PF_MEMALLOC;
 
 	down(&mq->thread_sem);
@@ -79,27 +73,40 @@ static int mmc_queue_thread(void *d)
 			continue;
 		}
 		set_current_state(TASK_RUNNING);
-
-#ifdef CONFIG_MMC_PERF_PROFILING
-		bytes_xfer = blk_rq_bytes(req);
-		if (rq_data_dir(req) == READ) {
-			start = ktime_get();
-			mq->issue_fn(mq, req);
-			diff = ktime_sub(ktime_get(), start);
-			host->perf.rbytes_mmcq += bytes_xfer;
-			host->perf.rtime_mmcq =
-				ktime_add(host->perf.rtime_mmcq, diff);
-		} else {
-			start = ktime_get();
-			mq->issue_fn(mq, req);
-			diff = ktime_sub(ktime_get(), start);
-			host->perf.wbytes_mmcq += bytes_xfer;
-			host->perf.wtime_mmcq =
-				ktime_add(host->perf.wtime_mmcq, diff);
-		}
-#else
-			mq->issue_fn(mq, req);
+#ifdef CONFIG_MMC_AUTO_SUSPEND
+		mmc_auto_suspend(mq->card->host, 0);
 #endif
+#ifdef CONFIG_MMC_BLOCK_PARANOID_RESUME
+		if (mq->check_status) {
+			struct mmc_command cmd;
+			int retries = 3;
+
+			do {
+				int err;
+
+				cmd.opcode = MMC_SEND_STATUS;
+				cmd.arg = mq->card->rca << 16;
+				cmd.flags = MMC_RSP_R1 | MMC_CMD_AC;
+
+				mmc_claim_host(mq->card->host);
+				err = mmc_wait_for_cmd(mq->card->host, &cmd, 5);
+				mmc_release_host(mq->card->host);
+
+				if (err) {
+					printk(KERN_ERR "%s: failed to get status (%d)\n",
+					       __func__, err);
+					msleep(5);
+					retries--;
+					continue;
+				}
+				printk(KERN_DEBUG "%s: status 0x%.8x\n", __func__, cmd.resp[0]);
+			} while (retries &&
+				(!(cmd.resp[0] & R1_READY_FOR_DATA) ||
+				(R1_CURRENT_STATE(cmd.resp[0]) == 7)));
+			mq->check_status = 0;
+                }
+#endif
+		mq->issue_fn(mq, req);
 	} while (1);
 	up(&mq->thread_sem);
 
@@ -186,8 +193,9 @@ int mmc_init_queue(struct mmc_queue *mq, struct mmc_card *card, spinlock_t *lock
 
 		if (mq->bounce_buf) {
 			blk_queue_bounce_limit(mq->queue, BLK_BOUNCE_ANY);
-			blk_queue_max_hw_sectors(mq->queue, bouncesz / 512);
-			blk_queue_max_segments(mq->queue, bouncesz / 512);
+			blk_queue_max_sectors(mq->queue, bouncesz / 512);
+			blk_queue_max_phys_segments(mq->queue, bouncesz / 512);
+			blk_queue_max_hw_segments(mq->queue, bouncesz / 512);
 			blk_queue_max_segment_size(mq->queue, bouncesz);
 
 			mq->sg = kmalloc(sizeof(struct scatterlist),
@@ -211,9 +219,10 @@ int mmc_init_queue(struct mmc_queue *mq, struct mmc_card *card, spinlock_t *lock
 
 	if (!mq->bounce_buf) {
 		blk_queue_bounce_limit(mq->queue, limit);
-		blk_queue_max_hw_sectors(mq->queue,
+		blk_queue_max_sectors(mq->queue,
 			min(host->max_blk_count, host->max_req_size / 512));
-		blk_queue_max_segments(mq->queue, host->max_hw_segs);
+		blk_queue_max_phys_segments(mq->queue, host->max_phys_segs);
+		blk_queue_max_hw_segments(mq->queue, host->max_hw_segs);
 		blk_queue_max_segment_size(mq->queue, host->max_seg_size);
 
 		mq->sg = kmalloc(sizeof(struct scatterlist) *

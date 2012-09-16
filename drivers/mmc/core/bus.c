@@ -13,7 +13,6 @@
 
 #include <linux/device.h>
 #include <linux/err.h>
-#include <linux/slab.h>
 
 #include <linux/mmc/card.h>
 #include <linux/mmc/host.h>

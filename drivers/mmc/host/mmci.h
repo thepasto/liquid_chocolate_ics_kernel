@@ -25,11 +25,9 @@
 #define MCI_CLK_ENABLE		(1 << 8)
 #define MCI_CLK_PWRSAVE		(1 << 9)
 #define MCI_CLK_BYPASS		(1 << 10)
-#define MCI_4BIT_BUS		(1 << 11)
-/* 8bit wide buses supported in ST Micro versions */
-#define MCI_ST_8BIT_BUS		(1 << 12)
+#define MCI_WIDE_BUS		(1 << 11)
 /* HW flow control on the ST Micro version */
-#define MCI_ST_FCEN		(1 << 13)
+#define MCI_FCEN		(1 << 13)
 
 #define MMCIARGUMENT		0x008
 #define MMCICOMMAND		0x00c
@@ -153,8 +151,6 @@ struct mmci_host {
 	struct mmc_data		*data;
 	struct mmc_host		*mmc;
 	struct clk		*clk;
-	int			gpio_cd;
-	int			gpio_wp;
 
 	unsigned int		data_xfered;
 
@@ -163,7 +159,7 @@ struct mmci_host {
 	unsigned int		mclk;
 	unsigned int		cclk;
 	u32			pwr;
-	struct mmci_platform_data *plat;
+	struct mmc_platform_data *plat;
 
 	u8			hw_designer;
 	u8			hw_revision:4;
@@ -177,7 +173,6 @@ struct mmci_host {
 	struct scatterlist	*sg_ptr;
 	unsigned int		sg_off;
 	unsigned int		size;
-	struct regulator	*vcc;
 };
 
 static inline void mmci_init_sg(struct mmci_host *host, struct mmc_data *data)

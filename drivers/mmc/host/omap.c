@@ -26,43 +26,42 @@
 #include <linux/clk.h>
 #include <linux/scatterlist.h>
 #include <linux/i2c/tps65010.h>
-#include <linux/slab.h>
 
 #include <asm/io.h>
 #include <asm/irq.h>
 
-#include <plat/board.h>
-#include <plat/mmc.h>
+#include <mach/board.h>
+#include <mach/mmc.h>
 #include <mach/gpio.h>
-#include <plat/dma.h>
-#include <plat/mux.h>
-#include <plat/fpga.h>
+#include <mach/dma.h>
+#include <mach/mux.h>
+#include <mach/fpga.h>
 
 #define	OMAP_MMC_REG_CMD	0x00
-#define	OMAP_MMC_REG_ARGL	0x01
-#define	OMAP_MMC_REG_ARGH	0x02
-#define	OMAP_MMC_REG_CON	0x03
-#define	OMAP_MMC_REG_STAT	0x04
-#define	OMAP_MMC_REG_IE		0x05
-#define	OMAP_MMC_REG_CTO	0x06
-#define	OMAP_MMC_REG_DTO	0x07
-#define	OMAP_MMC_REG_DATA	0x08
-#define	OMAP_MMC_REG_BLEN	0x09
-#define	OMAP_MMC_REG_NBLK	0x0a
-#define	OMAP_MMC_REG_BUF	0x0b
-#define	OMAP_MMC_REG_SDIO	0x0d
-#define	OMAP_MMC_REG_REV	0x0f
-#define	OMAP_MMC_REG_RSP0	0x10
-#define	OMAP_MMC_REG_RSP1	0x11
-#define	OMAP_MMC_REG_RSP2	0x12
-#define	OMAP_MMC_REG_RSP3	0x13
-#define	OMAP_MMC_REG_RSP4	0x14
-#define	OMAP_MMC_REG_RSP5	0x15
-#define	OMAP_MMC_REG_RSP6	0x16
-#define	OMAP_MMC_REG_RSP7	0x17
-#define	OMAP_MMC_REG_IOSR	0x18
-#define	OMAP_MMC_REG_SYSC	0x19
-#define	OMAP_MMC_REG_SYSS	0x1a
+#define	OMAP_MMC_REG_ARGL	0x04
+#define	OMAP_MMC_REG_ARGH	0x08
+#define	OMAP_MMC_REG_CON	0x0c
+#define	OMAP_MMC_REG_STAT	0x10
+#define	OMAP_MMC_REG_IE		0x14
+#define	OMAP_MMC_REG_CTO	0x18
+#define	OMAP_MMC_REG_DTO	0x1c
+#define	OMAP_MMC_REG_DATA	0x20
+#define	OMAP_MMC_REG_BLEN	0x24
+#define	OMAP_MMC_REG_NBLK	0x28
+#define	OMAP_MMC_REG_BUF	0x2c
+#define OMAP_MMC_REG_SDIO	0x34
+#define	OMAP_MMC_REG_REV	0x3c
+#define	OMAP_MMC_REG_RSP0	0x40
+#define	OMAP_MMC_REG_RSP1	0x44
+#define	OMAP_MMC_REG_RSP2	0x48
+#define	OMAP_MMC_REG_RSP3	0x4c
+#define	OMAP_MMC_REG_RSP4	0x50
+#define	OMAP_MMC_REG_RSP5	0x54
+#define	OMAP_MMC_REG_RSP6	0x58
+#define	OMAP_MMC_REG_RSP7	0x5c
+#define	OMAP_MMC_REG_IOSR	0x60
+#define	OMAP_MMC_REG_SYSC	0x64
+#define	OMAP_MMC_REG_SYSS	0x68
 
 #define	OMAP_MMC_STAT_CARD_ERR		(1 << 14)
 #define	OMAP_MMC_STAT_CARD_IRQ		(1 << 13)
@@ -78,9 +77,8 @@
 #define	OMAP_MMC_STAT_CARD_BUSY		(1 <<  2)
 #define	OMAP_MMC_STAT_END_OF_CMD	(1 <<  0)
 
-#define OMAP_MMC_REG(host, reg)		(OMAP_MMC_REG_##reg << (host)->reg_shift)
-#define OMAP_MMC_READ(host, reg)	__raw_readw((host)->virt_base + OMAP_MMC_REG(host, reg))
-#define OMAP_MMC_WRITE(host, reg, val)	__raw_writew((val), (host)->virt_base + OMAP_MMC_REG(host, reg))
+#define OMAP_MMC_READ(host, reg)	__raw_readw((host)->virt_base + OMAP_MMC_REG_##reg)
+#define OMAP_MMC_WRITE(host, reg, val)	__raw_writew((val), (host)->virt_base + OMAP_MMC_REG_##reg)
 
 /*
  * Command types
@@ -134,7 +132,6 @@ struct mmc_omap_host {
 	int			irq;
 	unsigned char		bus_mode;
 	unsigned char		hw_bus_mode;
-	unsigned int		reg_shift;
 
 	struct work_struct	cmd_abort_work;
 	unsigned		abort:1;
@@ -159,6 +156,8 @@ struct mmc_omap_host {
 	spinlock_t		dma_lock;
 	struct timer_list	dma_timer;
 	unsigned		dma_len;
+
+	short			power_pin;
 
 	struct mmc_omap_slot    *slots[OMAP_MMC_MAX_SLOTS];
 	struct mmc_omap_slot    *current_slot;
@@ -682,9 +681,9 @@ mmc_omap_xfer_data(struct mmc_omap_host *host, int write)
 	host->data->bytes_xfered += n;
 
 	if (write) {
-		__raw_writesw(host->virt_base + OMAP_MMC_REG(host, DATA), host->buffer, n);
+		__raw_writesw(host->virt_base + OMAP_MMC_REG_DATA, host->buffer, n);
 	} else {
-		__raw_readsw(host->virt_base + OMAP_MMC_REG(host, DATA), host->buffer, n);
+		__raw_readsw(host->virt_base + OMAP_MMC_REG_DATA, host->buffer, n);
 	}
 }
 
@@ -825,7 +824,7 @@ static irqreturn_t mmc_omap_irq(int irq, void *dev_id)
 		del_timer(&host->cmd_abort_timer);
 		host->abort = 1;
 		OMAP_MMC_WRITE(host, IE, 0);
-		disable_irq_nosync(host->irq);
+		disable_irq(host->irq);
 		schedule_work(&host->cmd_abort_work);
 		return IRQ_HANDLED;
 	}
@@ -902,7 +901,7 @@ mmc_omap_prepare_dma(struct mmc_omap_host *host, struct mmc_data *data)
 	int dst_port = 0;
 	int sync_dev = 0;
 
-	data_addr = host->phys_base + OMAP_MMC_REG(host, DATA);
+	data_addr = host->phys_base + OMAP_MMC_REG_DATA;
 	frame = data->blksz;
 	count = sg_dma_len(sg);
 
@@ -1157,6 +1156,7 @@ static void mmc_omap_start_request(struct mmc_omap_host *host,
 	mmc_omap_start_command(host, req->cmd);
 	if (host->dma_in_use)
 		omap_start_dma(host->dma_ch);
+	BUG_ON(irqs_disabled());
 }
 
 static void mmc_omap_request(struct mmc_host *mmc, struct mmc_request *req)
@@ -1460,14 +1460,18 @@ static int __init mmc_omap_probe(struct platform_device *pdev)
 	if (!host->virt_base)
 		goto err_ioremap;
 
-	host->iclk = clk_get(&pdev->dev, "ick");
-	if (IS_ERR(host->iclk)) {
-		ret = PTR_ERR(host->iclk);
-		goto err_free_mmc_host;
+	if (cpu_is_omap24xx()) {
+		host->iclk = clk_get(&pdev->dev, "mmc_ick");
+		if (IS_ERR(host->iclk))
+			goto err_free_mmc_host;
+		clk_enable(host->iclk);
 	}
-	clk_enable(host->iclk);
 
-	host->fclk = clk_get(&pdev->dev, "fck");
+	if (!cpu_is_omap24xx())
+		host->fclk = clk_get(&pdev->dev, "mmc_ck");
+	else
+		host->fclk = clk_get(&pdev->dev, "mmc_fck");
+
 	if (IS_ERR(host->fclk)) {
 		ret = PTR_ERR(host->fclk);
 		goto err_free_iclk;
@@ -1494,8 +1498,6 @@ static int __init mmc_omap_probe(struct platform_device *pdev)
 		}
 	}
 
-	host->reg_shift = (cpu_is_omap7xx() ? 1 : 2);
-
 	return 0;
 
 err_plat_cleanup:
@@ -1506,8 +1508,10 @@ err_free_irq:
 err_free_fclk:
 	clk_put(host->fclk);
 err_free_iclk:
-	clk_disable(host->iclk);
-	clk_put(host->iclk);
+	if (host->iclk != NULL) {
+		clk_disable(host->iclk);
+		clk_put(host->iclk);
+	}
 err_free_mmc_host:
 	iounmap(host->virt_base);
 err_ioremap:
@@ -1532,11 +1536,10 @@ static int mmc_omap_remove(struct platform_device *pdev)
 	if (host->pdata->cleanup)
 		host->pdata->cleanup(&pdev->dev);
 
-	mmc_omap_fclk_enable(host, 0);
-	free_irq(host->irq, host);
-	clk_put(host->fclk);
-	clk_disable(host->iclk);
-	clk_put(host->iclk);
+	if (host->iclk && !IS_ERR(host->iclk))
+		clk_put(host->iclk);
+	if (host->fclk && !IS_ERR(host->fclk))
+		clk_put(host->fclk);
 
 	iounmap(host->virt_base);
 	release_mem_region(pdev->resource[0].start,
@@ -1560,7 +1563,7 @@ static int mmc_omap_suspend(struct platform_device *pdev, pm_message_t mesg)
 		struct mmc_omap_slot *slot;
 
 		slot = host->slots[i];
-		ret = mmc_suspend_host(slot->mmc);
+		ret = mmc_suspend_host(slot->mmc, mesg);
 		if (ret < 0) {
 			while (--i >= 0) {
 				slot = host->slots[i];
@@ -1598,6 +1601,7 @@ static int mmc_omap_resume(struct platform_device *pdev)
 #endif
 
 static struct platform_driver mmc_omap_driver = {
+	.probe		= mmc_omap_probe,
 	.remove		= mmc_omap_remove,
 	.suspend	= mmc_omap_suspend,
 	.resume		= mmc_omap_resume,
@@ -1609,7 +1613,7 @@ static struct platform_driver mmc_omap_driver = {
 
 static int __init mmc_omap_init(void)
 {
-	return platform_driver_probe(&mmc_omap_driver, mmc_omap_probe);
+	return platform_driver_register(&mmc_omap_driver);
 }
 
 static void __exit mmc_omap_exit(void)

@@ -11,7 +11,6 @@
  */
 
 #include <linux/err.h>
-#include <linux/slab.h>
 
 #include <linux/mmc/host.h>
 #include <linux/mmc/card.h>
@@ -211,11 +210,11 @@ static int mmc_read_switch(struct mmc_card *card)
 
 	err = mmc_sd_switch(card, 0, 0, 1, status);
 	if (err) {
-		/* If the host or the card can't do the switch,
-		 * fail more gracefully. */
-		if ((err != -EINVAL)
-		 && (err != -ENOSYS)
-		 && (err != -EFAULT))
+		/*
+		 * We all hosts that cannot perform the command
+		 * to fail more gracefully
+		 */
+		if (err != -EINVAL)
 			goto out;
 
 		printk(KERN_WARNING "%s: problem reading switch "
@@ -315,7 +314,7 @@ static struct attribute_group sd_std_attr_group = {
 	.attrs = sd_std_attrs,
 };
 
-static const struct attribute_group *sd_attr_groups[] = {
+static struct attribute_group *sd_attr_groups[] = {
 	&sd_std_attr_group,
 	NULL,
 };
@@ -364,6 +363,15 @@ static int mmc_sd_init_card(struct mmc_host *host, u32 ocr,
 	err = mmc_send_app_op_cond(host, ocr, NULL);
 	if (err)
 		goto err;
+
+	/*
+	 * For SPI, enable CRC as appropriate.
+	 */
+	if (mmc_host_is_spi(host)) {
+		err = mmc_spi_set_crc(host, use_spi_crc);
+		if (err)
+			goto err;
+	}
 
 	/*
 	 * Fetch CID from card.
@@ -470,18 +478,6 @@ static int mmc_sd_init_card(struct mmc_host *host, u32 ocr,
 	}
 
 	/*
-	 * For SPI, enable CRC as appropriate.
-	 * This CRC enable is located AFTER the reading of the
-	 * card registers because some SDHC cards are not able
-	 * to provide valid CRCs for non-512-byte blocks.
-	 */
-	if (mmc_host_is_spi(host)) {
-		err = mmc_spi_set_crc(host, use_spi_crc);
-		if (err)
-			goto free_card;
-	}
-
-	/*
 	 * Attempt to change to high-speed (if supported)
 	 */
 	err = mmc_switch_hs(card);
@@ -554,7 +550,7 @@ static void mmc_sd_remove(struct mmc_host *host)
 
 	mmc_claim_host(host);
 	host->card = NULL;
-	mmc_release_host(host);
+	mmc_claim_host(host);
 }
 
 /*
@@ -603,10 +599,12 @@ static void mmc_sd_detect(struct mmc_host *host)
 	}
 }
 
+#ifdef CONFIG_MMC_UNSAFE_RESUME
+
 /*
  * Suspend callback from host.
  */
-static int mmc_sd_suspend(struct mmc_host *host)
+static void mmc_sd_suspend(struct mmc_host *host)
 {
 	BUG_ON(!host);
 	BUG_ON(!host->card);
@@ -616,8 +614,6 @@ static int mmc_sd_suspend(struct mmc_host *host)
 		mmc_deselect_cards(host);
 	host->card->state &= ~MMC_STATE_HIGHSPEED;
 	mmc_release_host(host);
-
-	return 0;
 }
 
 /*
@@ -626,7 +622,7 @@ static int mmc_sd_suspend(struct mmc_host *host)
  * This function tries to determine if the same card is still present
  * and, if so, restore all state to it.
  */
-static int mmc_sd_resume(struct mmc_host *host)
+static void mmc_sd_resume(struct mmc_host *host)
 {
 	int err;
 #ifdef CONFIG_MMC_PARANOID_SD_INIT
@@ -656,43 +652,29 @@ static int mmc_sd_resume(struct mmc_host *host)
 #endif
 	mmc_release_host(host);
 
-	return err;
+	if (err) {
+		mmc_sd_remove(host);
+
+		mmc_claim_host(host);
+		mmc_detach_bus(host);
+		mmc_release_host(host);
+	}
+
 }
 
-static void mmc_sd_power_restore(struct mmc_host *host)
-{
-	host->card->state &= ~MMC_STATE_HIGHSPEED;
-	mmc_claim_host(host);
-	mmc_sd_init_card(host, host->ocr, host->card);
-	mmc_release_host(host);
-}
+#else
+
+#define mmc_sd_suspend NULL
+#define mmc_sd_resume NULL
+
+#endif
 
 static const struct mmc_bus_ops mmc_sd_ops = {
 	.remove = mmc_sd_remove,
 	.detect = mmc_sd_detect,
-	.suspend = NULL,
-	.resume = NULL,
-	.power_restore = mmc_sd_power_restore,
-};
-
-static const struct mmc_bus_ops mmc_sd_ops_unsafe = {
-	.remove = mmc_sd_remove,
-	.detect = mmc_sd_detect,
 	.suspend = mmc_sd_suspend,
 	.resume = mmc_sd_resume,
-	.power_restore = mmc_sd_power_restore,
 };
-
-static void mmc_sd_attach_bus_ops(struct mmc_host *host)
-{
-	const struct mmc_bus_ops *bus_ops;
-
-	if (!mmc_card_is_removable(host))
-		bus_ops = &mmc_sd_ops_unsafe;
-	else
-		bus_ops = &mmc_sd_ops;
-	mmc_attach_bus(host, bus_ops);
-}
 
 /*
  * Starting point for SD card init.
@@ -707,7 +689,7 @@ int mmc_attach_sd(struct mmc_host *host, u32 ocr)
 	BUG_ON(!host);
 	WARN_ON(!host->claimed);
 
-	mmc_sd_attach_bus_ops(host);
+	mmc_attach_bus(host, &mmc_sd_ops);
 
 	/*
 	 * We need to get OCR a different way for SPI.
