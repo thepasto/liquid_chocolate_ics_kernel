@@ -2180,6 +2180,14 @@ config FB_MSM_MDP40
 	  Say Y here if this is msm7x30 variant platform.
 endchoice
 
+config FB_MSM_MDDI_DISABLE_MDP_HW_VSYNC
+	depends on FB_MSM
+	bool "Disable QC define"
+	select FB_MSM_MDDI
+	---help---
+	  Disables the Qualcomm define MDP_HW_VSYNC
+
+
 config FB_MSM_EBI2
 	bool
 	default n
