@@ -23,7 +23,6 @@
 
 #include <linux/kernel.h>
 #include <linux/fs.h>
-#include <linux/slab.h>
 #include <linux/errno.h>
 #include <linux/hdreg.h>
 #include <linux/kdev_t.h>
@@ -45,9 +44,9 @@
 MODULE_ALIAS("mmc:block");
 
 /*
- * max 32 partitions per card
+ * max 16 partitions per card
  */
-#define MMC_SHIFT	5
+#define MMC_SHIFT	4
 #define MMC_NUM_MINORS	(256 >> MMC_SHIFT)
 
 static DECLARE_BITMAP(dev_use, MMC_NUM_MINORS);
@@ -86,7 +85,11 @@ static void mmc_blk_put(struct mmc_blk_data *md)
 	mutex_lock(&open_lock);
 	md->usage--;
 	if (md->usage == 0) {
-		int devidx = md->disk->first_minor >> MMC_SHIFT;
+		int devmaj = MAJOR(disk_devt(md->disk));
+		int devidx = MINOR(disk_devt(md->disk)) >> MMC_SHIFT;
+
+		if (!devmaj)
+			devidx = md->disk->first_minor >> MMC_SHIFT;
 
 		blk_cleanup_queue(md->queue.queue);
 
@@ -134,7 +137,7 @@ mmc_blk_getgeo(struct block_device *bdev, struct hd_geometry *geo)
 	return 0;
 }
 
-static const struct block_device_operations mmc_bdops = {
+static struct block_device_operations mmc_bdops = {
 	.open			= mmc_blk_open,
 	.release		= mmc_blk_release,
 	.getgeo			= mmc_blk_getgeo,
@@ -289,7 +292,7 @@ static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 		brq.mrq.cmd = &brq.cmd;
 		brq.mrq.data = &brq.data;
 
-		brq.cmd.arg = blk_rq_pos(req);
+		brq.cmd.arg = req->sector;
 		if (!mmc_card_blockaddr(card))
 			brq.cmd.arg <<= 9;
 		brq.cmd.flags = MMC_RSP_SPI_R1 | MMC_RSP_R1 | MMC_CMD_ADTC;
@@ -297,7 +300,7 @@ static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 		brq.stop.opcode = MMC_STOP_TRANSMISSION;
 		brq.stop.arg = 0;
 		brq.stop.flags = MMC_RSP_SPI_R1B | MMC_RSP_R1B | MMC_CMD_AC;
-		brq.data.blocks = blk_rq_sectors(req);
+		brq.data.blocks = req->nr_sectors;
 
 		/*
 		 * The block layer doesn't support all sector count
@@ -347,7 +350,7 @@ static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 		 * Adjust the sg list so it is the same size as the
 		 * request.
 		 */
-		if (brq.data.blocks != blk_rq_sectors(req)) {
+		if (brq.data.blocks != req->nr_sectors) {
 			int i, data_size = brq.data.blocks << 9;
 			struct scatterlist *sg;
 
@@ -400,8 +403,8 @@ static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 			printk(KERN_ERR "%s: error %d transferring data,"
 			       " sector %u, nr %u, card status %#x\n",
 			       req->rq_disk->disk_name, brq.data.error,
-			       (unsigned)blk_rq_pos(req),
-			       (unsigned)blk_rq_sectors(req), status);
+			       (unsigned)req->sector,
+			       (unsigned)req->nr_sectors, status);
 		}
 
 		if (brq.stop.error) {
@@ -412,6 +415,7 @@ static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 		}
 
 		if (!mmc_host_is_spi(card->host) && rq_data_dir(req) != READ) {
+			int retries = 30;
 			do {
 				int err;
 
@@ -429,6 +433,14 @@ static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 				 * so make sure to check both the busy
 				 * indication and the card state.
 				 */
+				if (!retries) {
+					set_current_state(TASK_INTERRUPTIBLE);
+					schedule_timeout(1);
+					set_current_state(TASK_RUNNING);
+					retries = 30;
+				} else {
+					retries--;
+				}
 			} while (!(cmd.resp[0] & R1_READY_FOR_DATA) ||
 				(R1_CURRENT_STATE(cmd.resp[0]) == 7));
 
@@ -554,7 +566,6 @@ static struct mmc_blk_data *mmc_blk_alloc(struct mmc_card *card)
 	md->disk->private_data = md;
 	md->disk->queue = md->queue.queue;
 	md->disk->driverfs_dev = &card->dev;
-	md->disk->flags = GENHD_FL_EXT_DEVT;
 
 	/*
 	 * As discussed on lkml, GENHD_FL_REMOVABLE should:
@@ -672,8 +683,21 @@ static int mmc_blk_resume(struct mmc_card *card)
 	struct mmc_blk_data *md = mmc_get_drvdata(card);
 
 	if (md) {
+#ifdef CONFIG_MMC_AUTO_SUSPEND
+		/* There could be a chance where system suspend can
+		 * fail after card is suspended but before host is
+		 * suspended. But if the host is already suspended
+		 * due to auto-suspend functionality, then resume it
+		 * now.
+		 */
+		mmc_auto_suspend(card->host, 0);
+#endif
 #ifndef CONFIG_MMC_BLOCK_DEFERRED_RESUME
 		mmc_blk_set_blksize(md, card);
+#endif
+
+#ifdef CONFIG_MMC_BLOCK_PARANOID_RESUME
+		md->queue.check_status = 1;
 #endif
 		mmc_queue_resume(&md->queue);
 	}
