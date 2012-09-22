@@ -1,57 +1,18 @@
 /* Copyright (c) 2009-2010, Code Aurora Forum. All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimer in the
- *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of Code Aurora Forum nor
- *       the names of its contributors may be used to endorse or promote
- *       products derived from this software without specific prior written
- *       permission.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
  *
- * Alternatively, provided that this notice is retained in full, this software
- * may be relicensed by the recipient under the terms of the GNU General Public
- * License version 2 ("GPL") and only version 2, in which case the provisions of
- * the GPL apply INSTEAD OF those given above.  If the recipient relicenses the
- * software under the GPL, then the identification text in the MODULE_LICENSE
- * macro must be changed to reflect "GPLv2" instead of "Dual BSD/GPL".  Once a
- * recipient changes the license terms to the GPL, subsequent recipients shall
- * not relicense under alternate licensing terms, including the BSD or dual
- * BSD/GPL terms.  In addition, the following license statement immediately
- * below and between the words START and END shall also then apply when this
- * software is relicensed under the GPL:
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
- * START
- *
- * This program is free software; you can redistribute it and/or modify it under
- * the terms of the GNU General Public License version 2 and only version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
- * details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * END
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
+ * 02110-1301, USA.
  *
  */
 
@@ -64,18 +25,18 @@
 #include <linux/spinlock.h>
 #include <linux/hrtimer.h>
 #include <linux/clk.h>
-#include <mach/hardware.h>
 #include <linux/io.h>
 #include <linux/debugfs.h>
-
-#include <asm/system.h>
-#include <asm/mach-types.h>
 #include <linux/semaphore.h>
 #include <linux/uaccess.h>
-
+#include <asm/system.h>
+#include <asm/mach-types.h>
+#include <mach/hardware.h>
 #include "mdp.h"
 #include "msm_fb.h"
 #include "mdp4.h"
+
+struct mdp4_statistic mdp4_stat;
 
 void mdp4_sw_reset(ulong bits)
 {
@@ -108,9 +69,26 @@ void mdp4_overlay_cfg(int overlayer, int blt_mode, int refresh, int direct_out)
 
 void mdp4_display_intf_sel(int output, ulong intf)
 {
-	ulong bits, mask;
+	ulong bits, mask, data;
 
 	bits = inpdw(MDP_BASE + 0x0038);	/* MDP_DISP_INTF_SEL */
+
+	if (intf == DSI_VIDEO_INTF) {
+		data = 0x40;	/* bit 6 */
+		intf = MDDI_LCDC_INTF;
+		if (output == SECONDARY_INTF_SEL) {
+			printk(KERN_INFO "%s: Illegal INTF selected, output=%d \
+				intf=%d\n", __func__, output, (int)intf);
+		}
+	} else if (intf == DSI_CMD_INTF) {
+		data = 0x80;	/* bit 7 */
+		intf = MDDI_INTF;
+		if (output == EXTERNAL_INTF_SEL) {
+			printk(KERN_INFO "%s: Illegal INTF selected, output=%d \
+				intf=%d\n", __func__, output, (int)intf);
+		}
+	} else
+		data = 0;
 
 	mask = 0x03;	/* 2 bits */
 	intf &= 0x03;	/* 2 bits */
@@ -129,6 +107,8 @@ void mdp4_display_intf_sel(int output, ulong intf)
 		break;
 	}
 
+	intf |= data;
+	mask |= data;
 
 	bits &= ~mask;
 	bits |= intf;
@@ -200,6 +180,8 @@ void mdp4_fetch_cfg(uint32 core_clk)
 			dmap_data, vg_data);
 
 	/* dma_p fetch config */
+	outpdw(MDP_BASE + 0x91004, dmap_data);
+	/* dma_e fetch config */
 	outpdw(MDP_BASE + 0x91004, dmap_data);
 
 	/*
@@ -323,12 +305,6 @@ void mdp4_clear_lcdc(void)
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 }
 
-static int intr_dma_p;
-static int intr_dma_s;
-static int intr_dma_e;
-static int intr_overlay0;
-static int intr_overlay1;
-
 irqreturn_t mdp4_isr(int irq, void *ptr)
 {
 	uint32 isr, mask, lcdc;
@@ -337,12 +313,31 @@ irqreturn_t mdp4_isr(int irq, void *ptr)
 	mdp_is_in_isr = TRUE;
 
 	while (1) {
+		/* complete all the reads before reading the interrupt
+		 * status register - eliminate effects of speculative
+		 * reads by the cpu
+		 */
+		rmb();
 		isr = inpdw(MDP_INTR_STATUS);
 		if (isr == 0)
 			break;
 
+		mdp4_stat.intr_tot++;
+
 		mask = inpdw(MDP_INTR_ENABLE);
 		outpdw(MDP_INTR_CLEAR, isr);
+
+		if (isr & INTR_PRIMARY_INTF_UDERRUN) {
+			mdp4_stat.intr_underrun_p++;
+			/* When underun occurs mdp clear the histogram registers
+			that are set before in hw_init so restore them back so
+			that histogram works.*/
+			MDP_OUTP(MDP_BASE + 0x95010, 1);
+			outpdw(MDP_BASE + 0x9501c, INTR_HIST_DONE);
+		}
+
+		if (isr & INTR_EXTERNAL_INTF_UDERRUN)
+			mdp4_stat.intr_underrun_e++;
 
 		isr &= mask;
 
@@ -350,14 +345,16 @@ irqreturn_t mdp4_isr(int irq, void *ptr)
 			break;
 
 		if (isr & INTR_DMA_P_DONE) {
-			intr_dma_p++;
+			mdp4_stat.intr_dma_p++;
 			lcdc = inpdw(MDP_BASE + 0xc0000);
 			dma = &dma2_data;
 			if (lcdc & 0x01) {	/* LCDC enable */
 				/* disable LCDC interrupt */
+				spin_lock(&mdp_spin_lock);
 				mdp_intr_mask &= ~INTR_DMA_P_DONE;
 				outp32(MDP_INTR_ENABLE, mdp_intr_mask);
 				dma->waiting = FALSE;
+				spin_unlock(&mdp_spin_lock);
 			} else {
 				dma->busy = FALSE;
 				mdp_pipe_ctrl(MDP_DMA2_BLOCK,
@@ -366,16 +363,25 @@ irqreturn_t mdp4_isr(int irq, void *ptr)
 			complete(&dma->comp);
 		}
 		if (isr & INTR_DMA_S_DONE) {
-			intr_dma_s++;
+			mdp4_stat.intr_dma_s++;
+#ifdef MDP4_MDDI_DMA_SWITCH
+			dma = &dma2_data;
+			dma->busy = FALSE;
+			mdp_pipe_ctrl(MDP_DMA_S_BLOCK,
+					MDP_BLOCK_POWER_OFF, TRUE);
+			mdp4_dma_s_done_mddi();
+#else
 			dma = &dma_s_data;
 			dma->busy = FALSE;
 			mdp_pipe_ctrl(MDP_DMA_S_BLOCK,
 					MDP_BLOCK_POWER_OFF, TRUE);
 			complete(&dma->comp);
+#endif
 		}
 		if (isr & INTR_DMA_E_DONE) {
-			intr_dma_e++;
+			mdp4_stat.intr_dma_e++;
 			dma = &dma_e_data;
+			spin_lock(&mdp_spin_lock);
 			mdp_intr_mask &= ~INTR_DMA_E_DONE;
 			outp32(MDP_INTR_ENABLE, mdp_intr_mask);
 			dma->busy = FALSE;
@@ -384,40 +390,52 @@ irqreturn_t mdp4_isr(int irq, void *ptr)
 				dma->waiting = FALSE;
 				complete(&dma->comp);
 			}
+			spin_unlock(&mdp_spin_lock);
 		}
 		if (isr & INTR_OVERLAY0_DONE) {
-			intr_overlay0++;
+			mdp4_stat.intr_overlay0++;
 			lcdc = inpdw(MDP_BASE + 0xc0000);
 			dma = &dma2_data;
 			if (lcdc & 0x01) {	/* LCDC enable */
 				/* disable LCDC interrupt */
+				spin_lock(&mdp_spin_lock);
 				mdp_intr_mask &= ~INTR_OVERLAY0_DONE;
 				outp32(MDP_INTR_ENABLE, mdp_intr_mask);
 				dma->waiting = FALSE;
+				spin_unlock(&mdp_spin_lock);
 #ifdef CONFIG_FB_MSM_OVERLAY
 				mdp4_overlay0_done_lcdc();
 #endif
+#ifdef CONFIG_FB_MSM_MIPI_DSI
+			} else {	/* MIPI_DSI VIDEO */
+				dma->busy = FALSE;
+				mdp4_overlay0_done_dsi_video();
+			}
+#else
 			} else {	/* MDDI */
 				dma->busy = FALSE;
-#ifdef MDP4_NONBLOCKING
-				mdp_disable_irq_nolock(MDP_OVERLAY0_TERM);
-#endif
 				mdp_pipe_ctrl(MDP_OVERLAY0_BLOCK,
 					MDP_BLOCK_POWER_OFF, TRUE);
 #ifdef CONFIG_FB_MSM_OVERLAY
 				mdp4_overlay0_done_mddi();
 #endif
 			}
+#endif
 		}
 		if (isr & INTR_OVERLAY1_DONE) {
-			intr_overlay1++;
+			mdp4_stat.intr_overlay1++;
 			/* disable DTV interrupt */
 			dma = &dma_e_data;
+			spin_lock(&mdp_spin_lock);
 			mdp_intr_mask &= ~INTR_OVERLAY1_DONE;
 			outp32(MDP_INTR_ENABLE, mdp_intr_mask);
 			dma->waiting = FALSE;
-#ifdef CONFIG_FB_MSM_DTV
+			spin_unlock(&mdp_spin_lock);
+#if defined(CONFIG_FB_MSM_DTV)
 			mdp4_overlay1_done_dtv();
+#elif defined(CONFIG_FB_MSM_TVOUT)
+			mdp4_overlay1_done_atv();
+#else
 #endif
 		}
 		if (isr & INTR_DMA_P_HISTOGRAM) {
@@ -991,6 +1009,19 @@ void mdp4_vg_qseed_init(int vp_num)
 	for (i = 0; i < (sizeof(vg_qseed_table0) / sizeof(uint32)); i++) {
 		outpdw(off, vg_qseed_table0[i]);
 		off++;
+		/* This code is added to workaround the 1K Boundary AXI
+		Interleave operations from Scorpion that can potentially
+		corrupt the QSEED table. The idea is to complete the prevous
+		to the buffer before making the next write when address is
+		1KB aligned to ensure the write has been committed prior to
+		next instruction write that can go out from  the secondary AXI
+		port.This happens also because of the expected write sequence
+		from QSEED table, where LSP has to be written first then the
+		MSP to trigger both to write out to SRAM, if this has not been
+		the expectation, then corruption wouldn't have happened.*/
+
+		if (!((uint32)off & 0x3FF))
+			wmb();
 	}
 
 	off = (uint32 *)(MDP_BASE + MDP4_VIDEO_BASE + voff +
@@ -998,6 +1029,8 @@ void mdp4_vg_qseed_init(int vp_num)
 	for (i = 0; i < (sizeof(vg_qseed_table1) / sizeof(uint32)); i++) {
 		outpdw(off, vg_qseed_table1[i]);
 		off++;
+		if (!((uint32)off & 0x3FF))
+			wmb();
 	}
 
 	off = (uint32 *)(MDP_BASE + MDP4_VIDEO_BASE + voff +
@@ -1005,6 +1038,8 @@ void mdp4_vg_qseed_init(int vp_num)
 	for (i = 0; i < (sizeof(vg_qseed_table2) / sizeof(uint32)); i++) {
 		outpdw(off, vg_qseed_table2[i]);
 		off++;
+		if (!((uint32)off & 0x3FF))
+			wmb();
 	}
 
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
@@ -1148,8 +1183,8 @@ void mdp4_vg_csc_post_lv_setup(int vp_num)
 
 static uint32 csc_rgb2yuv_matrix_tab[9] = {
 	0x0083, 0x0102, 0x0032,
-	0xffb5, 0xff6c, 0x00e1,
-	0x00e1, 0xff45, 0xffdc
+	0x1fb5, 0x1f6c, 0x00e1,
+	0x00e1, 0x1f45, 0x1fdc
 };
 
 static uint32 csc_rgb2yuv_pre_bv_tab[3] = {0, 0, 0};

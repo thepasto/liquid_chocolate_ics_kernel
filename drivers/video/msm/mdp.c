@@ -1,57 +1,18 @@
 /* Copyright (c) 2008-2010, Code Aurora Forum. All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimer in the
- *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of Code Aurora Forum nor
- *       the names of its contributors may be used to endorse or promote
- *       products derived from this software without specific prior written
- *       permission.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
  *
- * Alternatively, provided that this notice is retained in full, this software
- * may be relicensed by the recipient under the terms of the GNU General Public
- * License version 2 ("GPL") and only version 2, in which case the provisions of
- * the GPL apply INSTEAD OF those given above.  If the recipient relicenses the
- * software under the GPL, then the identification text in the MODULE_LICENSE
- * macro must be changed to reflect "GPLv2" instead of "Dual BSD/GPL".  Once a
- * recipient changes the license terms to the GPL, subsequent recipients shall
- * not relicense under alternate licensing terms, including the BSD or dual
- * BSD/GPL terms.  In addition, the following license statement immediately
- * below and between the words START and END shall also then apply when this
- * software is relicensed under the GPL:
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
- * START
- *
- * This program is free software; you can redistribute it and/or modify it under
- * the terms of the GNU General Public License version 2 and only version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
- * details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * END
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
+ * 02110-1301, USA.
  *
  */
 
@@ -74,7 +35,6 @@
 #include <asm/mach-types.h>
 #include <linux/semaphore.h>
 #include <linux/uaccess.h>
-
 #include "mdp.h"
 #include "msm_fb.h"
 #ifdef CONFIG_FB_MSM_MDP40
@@ -140,8 +100,8 @@ extern int mdp_lcd_rd_cnt_offset_fast;
 extern int mdp_usec_diff_threshold;
 
 #ifdef CONFIG_FB_MSM_LCDC
-extern int mdp_lcdc_pclk_clk_rate;
-extern int mdp_lcdc_pad_pclk_clk_rate;
+static struct clk *pixel_mdp_clk; /* drives the lcdc block in mdp */
+static struct clk *pixel_lcdc_clk; /* drives the lcdc interface */
 extern int first_pixel_start_x;
 extern int first_pixel_start_y;
 #endif
@@ -277,6 +237,9 @@ static int mdp_do_histogram(struct fb_info *info, struct mdp_histogram *hist)
 	mdp_hist.g = (hist->g) ? mdp_hist_g : 0;
 	mdp_hist.b = (hist->b) ? mdp_hist_b : 0;
 
+	mdp_enable_irq(MDP_HISTOGRAM_TERM);
+
+	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 #ifdef CONFIG_FB_MSM_MDP40
 	MDP_OUTP(MDP_BASE + 0x95004, hist->frame_cnt);
 	MDP_OUTP(MDP_BASE + 0x95000, 1);
@@ -284,7 +247,13 @@ static int mdp_do_histogram(struct fb_info *info, struct mdp_histogram *hist)
 	MDP_OUTP(MDP_BASE + 0x94004, hist->frame_cnt);
 	MDP_OUTP(MDP_BASE + 0x94000, 1);
 #endif
+	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+
 	wait_for_completion_killable(&mdp_hist_comp);
+
+	/* disable the irq for histogram since we handled it
+	   when the control reaches here */
+	mdp_disable_irq(MDP_HISTOGRAM_TERM);
 
 	if (hist->r) {
 		ret = copy_to_user(hist->r, mdp_hist.r, hist->bin_cnt*4);
@@ -351,6 +320,9 @@ void mdp_enable_irq(uint32 term)
 	spin_unlock_irqrestore(&mdp_lock, irq_flags);
 }
 
+/*
+ * mdp_disable_irq: can not be called from isr
+ */
 void mdp_disable_irq(uint32 term)
 {
 	unsigned long irq_flags;
@@ -368,16 +340,15 @@ void mdp_disable_irq(uint32 term)
 	spin_unlock_irqrestore(&mdp_lock, irq_flags);
 }
 
-void mdp_disable_irq_nolock(uint32 term)
+void mdp_disable_irq_nosync(uint32 term)
 {
-
 	if (!(mdp_irq_mask & term)) {
 		printk(KERN_ERR "MDP IRQ term-0x%x is not set\n", term);
 	} else {
 		mdp_irq_mask &= ~term;
 		if (!mdp_irq_mask && mdp_irq_enabled) {
 			mdp_irq_enabled = 0;
-			disable_irq(INT_MDP);
+			disable_irq_nosync(INT_MDP);
 		}
 	}
 }
@@ -454,6 +425,9 @@ void mdp_pipe_kickoff(uint32 term, struct msm_fb_data_type *mfd)
 	} else if (term == MDP_DMA_S_TERM) {
 		mdp_pipe_ctrl(MDP_DMA_S_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 		outpdw(MDP_BASE + 0x0048, 0x0);	/* start DMA */
+	} else if (term == MDP_DMA_E_TERM) {
+		mdp_pipe_ctrl(MDP_DMA_E_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+		outpdw(MDP_BASE + 0x004C, 0x0);
 	}
 #endif
 }
@@ -462,13 +436,21 @@ static void mdp_pipe_ctrl_workqueue_handler(struct work_struct *work)
 {
 	mdp_pipe_ctrl(MDP_MASTER_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 }
-
 void mdp_pipe_ctrl(MDP_BLOCK_TYPE block, MDP_BLOCK_POWER_STATE state,
 		   boolean isr)
 {
 	boolean mdp_all_blocks_off = TRUE;
 	int i;
 	unsigned long flag;
+
+
+	/*
+	 * It is assumed that if isr = TRUE then start = OFF
+	 * if start = ON when isr = TRUE it could happen that the usercontext
+	 * could turn off the clocks while the interrupt is updating the
+	 * power to ON
+	 */
+	WARN_ON(isr == TRUE && state == MDP_BLOCK_POWER_ON);
 
 	spin_lock_irqsave(&mdp_spin_lock, flag);
 	if (MDP_BLOCK_POWER_ON == state) {
@@ -628,6 +610,11 @@ irqreturn_t mdp_isr(int irq, void *ptr)
 		/* LCDC UnderFlow */
 		if (mdp_interrupt & LCDC_UNDERFLOW) {
 			mdp_lcdc_underflow_cnt++;
+			/*when underflow happens HW resets all the histogram
+			 registers that were set before so restore them back
+			 to normal.*/
+			MDP_OUTP(MDP_BASE + 0x94010, 1);
+			MDP_OUTP(MDP_BASE + 0x9401c, 2);
 		}
 		/* LCDC Frame Start */
 		if (mdp_interrupt & LCDC_FRAME_START) {
@@ -650,6 +637,15 @@ irqreturn_t mdp_isr(int irq, void *ptr)
 				      TRUE);
 			complete(&dma->comp);
 		}
+		/* DMA_E LCD-Out Complete */
+		if (mdp_interrupt & MDP_DMA_E_DONE) {
+			dma = &dma_s_data;
+			dma->busy = FALSE;
+			mdp_pipe_ctrl(MDP_DMA_E_BLOCK, MDP_BLOCK_POWER_OFF,
+				TRUE);
+			complete(&dma->comp);
+		}
+
 #endif
 
 		/* DMA2 LCD-Out Complete */
@@ -779,10 +775,10 @@ static void mdp_drv_init(void)
 					(u32 *) &first_pixel_start_y);
 				msm_fb_debugfs_file_create(mdp_dir,
 					"mdp_lcdc_pclk_clk_rate",
-					(u32 *) &mdp_lcdc_pclk_clk_rate);
+					(u32 *) &pixel_mdp_clk);
 				msm_fb_debugfs_file_create(mdp_dir,
 					"mdp_lcdc_pad_pclk_clk_rate",
-					(u32 *) &mdp_lcdc_pad_pclk_clk_rate);
+					(u32 *) &pixel_lcdc_clk);
 #endif
 			}
 		}
@@ -846,6 +842,12 @@ static int mdp_on(struct platform_device *pdev)
 	return ret;
 }
 
+
+static struct platform_device *pdev_list[MSM_FB_MAX_DEV_LIST];
+static int pdev_list_cnt;
+static int mdp_resource_initialized;
+static struct msm_panel_common_pdata *mdp_pdata;
+
 static int mdp_irq_clk_setup(void)
 {
 	int ret;
@@ -877,18 +879,13 @@ static int mdp_irq_clk_setup(void)
 	/*
 	 * mdp_clk should greater than mdp_pclk always
 	 */
-	clk_set_rate(mdp_clk, 122880000); /* 122.88 Mhz */
-	printk(KERN_INFO "mdp_clk: mdp_clk=%d\n",
-				(int)clk_get_rate(mdp_clk));
+	if (mdp_pdata && mdp_pdata->mdp_core_clk_rate)
+		clk_set_rate(mdp_clk, mdp_pdata->mdp_core_clk_rate);
+	printk(KERN_INFO "mdp_clk: mdp_clk=%d\n", (int)clk_get_rate(mdp_clk));
 #endif
 
 	return 0;
 }
-
-static struct platform_device *pdev_list[MSM_FB_MAX_DEV_LIST];
-static int pdev_list_cnt;
-static int mdp_resource_initialized;
-static struct msm_panel_common_pdata *mdp_pdata;
 
 static int mdp_probe(struct platform_device *pdev)
 {
@@ -990,7 +987,7 @@ static int mdp_probe(struct platform_device *pdev)
 		mfd->dma = &dma2_data;
 #else
 		if (mfd->panel_info.pdest == DISPLAY_1) {
-#ifdef CONFIG_FB_MSM_OVERLAY
+#if defined(CONFIG_FB_MSM_OVERLAY) && defined(CONFIG_FB_MSM_MDDI)
 			mfd->dma_fnc = mdp4_mddi_overlay;
 #else
 			mfd->dma_fnc = mdp_dma2_update;
@@ -1023,6 +1020,38 @@ static int mdp_probe(struct platform_device *pdev)
 #endif
 		mdp_config_vsync(mfd);
 		break;
+
+#ifdef CONFIG_FB_MSM_MIPI_DSI
+	case MIPI_VIDEO_PANEL:
+		pdata->on = mdp4_dsi_video_on;
+		pdata->off = mdp4_dsi_video_off;
+		mfd->hw_refresh = TRUE;
+		mfd->dma_fnc = mdp4_dsi_video_overlay;
+		if (mfd->panel_info.pdest == DISPLAY_1) {
+			if_no = PRIMARY_INTF_SEL;
+			mfd->dma = &dma2_data;
+		} else {
+			if_no = EXTERNAL_INTF_SEL;
+			mfd->dma = &dma_e_data;
+		}
+		mdp4_display_intf_sel(if_no, DSI_VIDEO_INTF);
+		break;
+
+	case MIPI_CMD_PANEL:
+		pdata->on = mdp4_dsi_cmd_on;
+		pdata->off = mdp4_dsi_cmd_off;
+		mfd->hw_refresh = TRUE;
+		mfd->dma_fnc = mdp4_dsi_cmd_overlay;
+		if (mfd->panel_info.pdest == DISPLAY_1) {
+			if_no = PRIMARY_INTF_SEL;
+			mfd->dma = &dma2_data;
+		} else {
+			if_no = SECONDARY_INTF_SEL;
+			mfd->dma = &dma_s_data;
+		}
+		mdp4_display_intf_sel(if_no, DSI_CMD_INTF);
+		break;
+#endif
 
 #ifdef CONFIG_FB_MSM_DTV
 	case DTV_PANEL:
@@ -1069,11 +1098,19 @@ static int mdp_probe(struct platform_device *pdev)
 		break;
 
 	case TV_PANEL:
+#if defined(CONFIG_FB_MSM_OVERLAY) && defined(CONFIG_FB_MSM_TVOUT)
+		pdata->on = mdp4_atv_on;
+		pdata->off = mdp4_atv_off;
+		mfd->dma_fnc = mdp4_atv_overlay;
+		mfd->dma = &dma_e_data;
+		mdp4_display_intf_sel(EXTERNAL_INTF_SEL, TV_INTF);
+#else
 		pdata->on = mdp_dma3_on;
 		pdata->off = mdp_dma3_off;
 		mfd->hw_refresh = TRUE;
 		mfd->dma_fnc = mdp_dma3_update;
 		mfd->dma = &dma3_data;
+#endif
 		break;
 
 	default:
@@ -1098,6 +1135,7 @@ static int mdp_probe(struct platform_device *pdev)
 	return rc;
 }
 
+#ifdef CONFIG_PM
 static void mdp_suspend_sub(void)
 {
 	/* cancel pipe ctrl worker */
@@ -1112,6 +1150,7 @@ static void mdp_suspend_sub(void)
 	/* try to power down */
 	mdp_pipe_ctrl(MDP_MASTER_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 }
+#endif
 
 #if defined(CONFIG_PM) && !defined(CONFIG_HAS_EARLYSUSPEND)
 static int mdp_suspend(struct platform_device *pdev, pm_message_t state)
@@ -1166,228 +1205,3 @@ static int __init mdp_driver_init(void)
 }
 
 module_init(mdp_driver_init);
-
-/***********************************************************************/
-
-#ifdef CONFIG_DEBUG_FS
-
-#define MDP_DEBUG_BUF	1024
-
-static uint32	mdp_offset;
-static uint32	mdp_count;
-
-static char	debug_buf[MDP_DEBUG_BUF];
-
-static int mdp_offset_open(struct inode *inode, struct file *file)
-{
-	/* non-seekable */
-	file->f_mode &= ~(FMODE_LSEEK | FMODE_PREAD | FMODE_PWRITE);
-	return 0;
-}
-
-static int mdp_offset_release(struct inode *inode, struct file *file)
-{
-	return 0;
-}
-
-static ssize_t mdp_offset_write(
-	struct file *file,
-	const char __user *buff,
-	size_t count,
-	loff_t *ppos)
-{
-	uint32 off, cnt;
-
-	if (count > sizeof(debug_buf))
-		return -EFAULT;
-
-	if (copy_from_user(debug_buf, buff, count))
-		return -EFAULT;
-
-	debug_buf[count] = 0;	/* end of string */
-
-	sscanf(debug_buf, "%x %d", &off, &cnt);
-
-	if (cnt <= 0)
-		cnt = 1;
-
-	mdp_offset = off;
-	mdp_count = cnt;
-
-	printk(KERN_INFO "%s: offset=%x cnt=%d\n", __func__,
-				mdp_offset, mdp_count);
-
-	return count;
-}
-
-static ssize_t mdp_offset_read(
-	struct file *file,
-	char __user *buff,
-	size_t count,
-	loff_t *ppos)
-{
-	int len = 0;
-
-
-	if (*ppos)
-		return 0;	/* the end */
-
-	len = snprintf(debug_buf, sizeof(debug_buf), "0x%08x %d\n",
-					mdp_offset, mdp_count);
-
-	if (copy_to_user(buff, debug_buf, len))
-		return -EFAULT;
-
-	if (len < 0)
-		return 0;
-
-	*ppos += len;	/* increase offset */
-
-	return len;
-}
-
-static const struct file_operations mdp_off_fops = {
-	.open = mdp_offset_open,
-	.release = mdp_offset_release,
-	.read = mdp_offset_read,
-	.write = mdp_offset_write,
-};
-
-static int mdp_reg_open(struct inode *inode, struct file *file)
-{
-	/* non-seekable */
-	file->f_mode &= ~(FMODE_LSEEK | FMODE_PREAD | FMODE_PWRITE);
-	return 0;
-}
-
-static int mdp_reg_release(struct inode *inode, struct file *file)
-{
-	return 0;
-}
-
-static ssize_t mdp_reg_write(
-	struct file *file,
-	const char __user *buff,
-	size_t count,
-	loff_t *ppos)
-{
-	uint32 off, data;
-	int cnt;
-
-	if (count > sizeof(debug_buf))
-		return -EFAULT;
-
-	if (copy_from_user(debug_buf, buff, count))
-		return -EFAULT;
-
-	debug_buf[count] = 0;	/* end of string */
-
-	cnt = sscanf(debug_buf, "%x %x", &off, &data);
-
-	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
-	outpdw(MDP_BASE + off, data);
-	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
-
-	printk(KERN_INFO "%s: addr=%x data=%x\n", __func__, off, data);
-
-	return count;
-}
-
-static ssize_t mdp_reg_read(
-	struct file *file,
-	char __user *buff,
-	size_t count,
-	loff_t *ppos)
-{
-	int len = 0;
-	uint32 data;
-	int i, j, off, dlen, num;
-	char *bp, *cp;
-	int tot = 0;
-
-
-	if (*ppos)
-		return 0;	/* the end */
-
-	j = 0;
-	num = 0;
-	bp = debug_buf;
-	cp = MDP_BASE + mdp_offset;
-	dlen = sizeof(debug_buf);
-	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
-	while (j++ < 8) {
-		len = snprintf(bp, dlen, "0x%08x: ", (int)cp);
-		tot += len;
-		bp += len;
-		dlen -= len;
-		off = 0;
-		i = 0;
-		while (i++ < 4) {
-			data = inpdw(cp + off);
-			len = snprintf(bp, dlen, "%08x ", data);
-			tot += len;
-			bp += len;
-			dlen -= len;
-			off += 4;
-			num++;
-			if (num >= mdp_count)
-				break;
-		}
-		*bp++ = '\n';
-		tot++;
-		cp += off;
-		if (num >= mdp_count)
-			break;
-	}
-	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
-	*bp = 0;
-	tot++;
-
-	if (copy_to_user(buff, debug_buf, tot))
-		return -EFAULT;
-
-	if (tot < 0)
-		return 0;
-
-	*ppos += tot;	/* increase offset */
-
-	return tot;
-}
-
-static const struct file_operations mdp_reg_fops = {
-	.open = mdp_reg_open,
-	.release = mdp_reg_release,
-	.read = mdp_reg_read,
-	.write = mdp_reg_write,
-};
-
-static int __init mdp_debugfs_init(void)
-{
-	struct dentry *dent = debugfs_create_dir("mdp", NULL);
-
-	if (IS_ERR(dent)) {
-		printk(KERN_ERR "%s(%d): debugfs_create_dir fail, error %ld\n",
-			__FILE__, __LINE__, PTR_ERR(dent));
-		return -1;
-	}
-
-	if (debugfs_create_file("off", 0644, dent, 0, &mdp_off_fops)
-			== NULL) {
-		printk(KERN_ERR "%s(%d): debugfs_create_file: index fail\n",
-			__FILE__, __LINE__);
-		return -1;
-	}
-
-	if (debugfs_create_file("reg", 0644, dent, 0, &mdp_reg_fops)
-			== NULL) {
-		printk(KERN_ERR "%s(%d): debugfs_create_file: debug fail\n",
-			__FILE__, __LINE__);
-		return -1;
-	}
-
-	return 0;
-}
-
-late_initcall(mdp_debugfs_init);
-
-#endif	/* CONFIG_DEBUG_FS */
