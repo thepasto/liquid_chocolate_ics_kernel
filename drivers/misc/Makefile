@@ -30,6 +30,7 @@ msm_tsif-objs := tsif.o
 
 obj-$(CONFIG_TSIF_CHRDEV) += tsif_chrdev.o
 obj-$(CONFIG_PMIC8058_PWM) += pmic8058-pwm.o
-
+obj-$(CONFIG_MSM_MEMORY_LOW_POWER_MODE_SUSPEND_DEEP_POWER_DOWN) \
+		 += msm_migrate_pages.o
 obj-$(CONFIG_APANIC)		+= apanic.o
 
