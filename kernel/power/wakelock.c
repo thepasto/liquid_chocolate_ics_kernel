@@ -118,7 +118,6 @@ static int print_lock_stat(struct seq_file *m, struct wake_lock *lock)
 		     ktime_to_ns(lock->stat.last_time));
 }
 
-
 static int wakelock_stats_show(struct seq_file *m, void *unused)
 {
 	unsigned long irqflags;
@@ -131,13 +130,12 @@ static int wakelock_stats_show(struct seq_file *m, void *unused)
 	ret = seq_puts(m, "name\tcount\texpire_count\twake_count\tactive_since"
 			"\ttotal_time\tsleep_time\tmax_time\tlast_change\n");
 	list_for_each_entry(lock, &inactive_locks, link)
-	ret = print_lock_stat(m, lock);
+		ret = print_lock_stat(m, lock);
 	for (type = 0; type < WAKE_LOCK_TYPE_COUNT; type++) {
 		list_for_each_entry(lock, &active_wake_locks[type], link)
 			ret = print_lock_stat(m, lock);
 	}
 	spin_unlock_irqrestore(&list_lock, irqflags);
-
 	return 0;
 }
 
@@ -211,18 +209,22 @@ static void expire_wake_lock(struct wake_lock *lock)
 static void print_active_locks(int type)
 {
 	struct wake_lock *lock;
+	bool print_expired = true;
 
 	BUG_ON(type >= WAKE_LOCK_TYPE_COUNT);
 	list_for_each_entry(lock, &active_wake_locks[type], link) {
 		if (lock->flags & WAKE_LOCK_AUTO_EXPIRE) {
 			long timeout = lock->expires - jiffies;
-			if (timeout <= 0)
-				pr_info("wake lock %s, expired\n", lock->name);
-			else
+			if (timeout > 0)
 				pr_info("active wake lock %s, time left %ld\n",
 					lock->name, timeout);
-		} else
+			else if (print_expired)
+				pr_info("wake lock %s, expired\n", lock->name);
+		} else {
 			pr_info("active wake lock %s\n", lock->name);
+			if (!debug_mask & DEBUG_EXPIRE)
+				print_expired = false;
+		}
 	}
 }
 
@@ -251,6 +253,8 @@ long has_wake_lock(int type)
 	unsigned long irqflags;
 	spin_lock_irqsave(&list_lock, irqflags);
 	ret = has_wake_lock_locked(type);
+	if (ret && (debug_mask & DEBUG_SUSPEND) && type == WAKE_LOCK_SUSPEND)
+		print_active_locks(type);
 	spin_unlock_irqrestore(&list_lock, irqflags);
 	return ret;
 }
@@ -307,7 +311,7 @@ static void expire_wake_locks(unsigned long data)
 }
 static DEFINE_TIMER(expire_timer, expire_wake_locks, 0, 0);
 
-static int power_suspend_late(struct platform_device *pdev, pm_message_t state)
+static int power_suspend_late(struct device *dev)
 {
 	int ret = has_wake_lock(WAKE_LOCK_SUSPEND) ? -EAGAIN : 0;
 #ifdef CONFIG_WAKELOCK_STAT
@@ -318,9 +322,13 @@ static int power_suspend_late(struct platform_device *pdev, pm_message_t state)
 	return ret;
 }
 
+static struct dev_pm_ops power_driver_pm_ops = {
+	.suspend_noirq = power_suspend_late,
+};
+
 static struct platform_driver power_driver = {
 	.driver.name = "power",
-	.suspend_late = power_suspend_late,
+	.driver.pm = &power_driver_pm_ops,
 };
 static struct platform_device power_device = {
 	.name = "power",
@@ -428,8 +436,7 @@ static void wake_lock_internal(
 		list_add(&lock->link, &active_wake_locks[type]);
 	}
 	if (type == WAKE_LOCK_SUSPEND) {
-		if (lock == &main_wake_lock)
-			current_event_num++;
+		current_event_num++;
 #ifdef CONFIG_WAKELOCK_STAT
 		if (lock == &main_wake_lock)
 			update_sleep_wait_stats_locked(1);
