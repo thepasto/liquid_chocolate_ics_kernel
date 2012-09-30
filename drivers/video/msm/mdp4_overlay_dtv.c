@@ -38,6 +38,22 @@
 
 #define DTV_BASE	0xD0000
 
+/*#define DEBUG*/
+#ifdef DEBUG
+static void __mdp_outp(uint32 port, uint32 value)
+{
+	uint32 in_val;
+
+	outpdw(port, value);
+	in_val = inpdw(port);
+	printk(KERN_INFO "MDP-DTV[%04x] => %08x [%08x]\n",
+		port-(uint32)(MDP_BASE + DTV_BASE), value, in_val);
+}
+
+#undef MDP_OUTP
+#define MDP_OUTP(port, value)	__mdp_outp((uint32)(port), (value))
+#endif
+
 static int first_pixel_start_x;
 static int first_pixel_start_y;
 
@@ -111,7 +127,7 @@ int mdp4_dtv_on(struct platform_device *pdev)
 		ptype = mdp4_overlay_format2type(format);
 		if (ptype < 0)
 			printk(KERN_INFO "%s: format2type failed\n", __func__);
-		pipe = mdp4_overlay_pipe_alloc(ptype);
+		pipe = mdp4_overlay_pipe_alloc(ptype, FALSE);
 		if (pipe == NULL) {
 			printk(KERN_INFO "%s: pipe_alloc failed\n", __func__);
 			return -EBUSY;
@@ -120,6 +136,7 @@ int mdp4_dtv_on(struct platform_device *pdev)
 		pipe->mixer_stage  = MDP4_MIXER_STAGE_BASE;
 		pipe->mixer_num  = MDP4_MIXER1;
 		pipe->src_format = format;
+		mdp4_overlay_panel_mode(pipe->mixer_num, MDP4_PANEL_DTV);
 		ret = mdp4_overlay_format2pipe(pipe);
 		if (ret < 0)
 			printk(KERN_INFO "%s: format2type failed\n", __func__);
@@ -163,8 +180,14 @@ int mdp4_dtv_on(struct platform_device *pdev)
 	dtv_underflow_clr = mfd->panel_info.lcdc.underflow_clr;
 	dtv_hsync_skew = mfd->panel_info.lcdc.hsync_skew;
 
-	dtv_width = mfd->panel_info.xres;
-	dtv_height = mfd->panel_info.yres;
+	pr_info("%s: <ID=%d %dx%d (%d,%d,%d), (%d,%d,%d) %dMHz>\n", __func__,
+		var->reserved[3], var->xres, var->yres,
+		var->right_margin, var->hsync_len, var->left_margin,
+		var->lower_margin, var->vsync_len, var->upper_margin,
+		var->pixclock/1000/1000);
+
+	dtv_width = var->xres;
+	dtv_height = var->yres;
 	dtv_bpp = mfd->panel_info.bpp;
 
 	hsync_period =
@@ -202,8 +225,8 @@ int mdp4_dtv_on(struct platform_device *pdev)
 	}
 
 	dtv_underflow_clr |= 0x80000000;	/* enable recovery */
-	hsync_polarity = 0;
-	vsync_polarity = 0;
+	hsync_polarity = fbi->var.yres >= 720 ? 0 : 1;
+	vsync_polarity = fbi->var.yres >= 720 ? 0 : 1;
 	data_en_polarity = 0;
 
 	ctrl_polarity =
@@ -224,11 +247,17 @@ int mdp4_dtv_on(struct platform_device *pdev)
 	MDP_OUTP(MDP_BASE + DTV_BASE + 0x30, active_v_start);
 	MDP_OUTP(MDP_BASE + DTV_BASE + 0x38, active_v_end);
 
+	/* Test pattern 8 x 8 pixel */
+	/* MDP_OUTP(MDP_BASE + DTV_BASE + 0x4C, 0x80000808); */
+
 	ret = panel_next_on(pdev);
 	if (ret == 0) {
 		/* enable DTV block */
 		MDP_OUTP(MDP_BASE + DTV_BASE, 1);
 		mdp_pipe_ctrl(MDP_OVERLAY1_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+		dev_info(&pdev->dev, "mdp4_overlay_dtv: on");
+	} else {
+		dev_warn(&pdev->dev, "mdp4_overlay_dtv: panel_next_on failed");
 	}
 	/* MDP cmd block disable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
@@ -251,6 +280,8 @@ int mdp4_dtv_off(struct platform_device *pdev)
 
 	/* delay to make sure the last frame finishes */
 	msleep(100);
+
+	pr_info("%s\n", __func__);
 
 	/* dis-engage rgb2 from mixer1 */
 	if (dtv_pipe)

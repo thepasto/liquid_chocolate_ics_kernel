@@ -111,10 +111,7 @@ struct msm_panel_info {
 	__u32 clk_min;
 	__u32 clk_max;
 	__u32 frame_count;
-#if defined(CONFIG_MACH_ACER_A1)
-	__u32 width;	// width of picture in mm
-	__u32 height;	// height of picture in mm
-#endif
+
 	union {
 		struct mddi_panel_info mddi;
 	};
@@ -145,7 +142,7 @@ struct platform_device *msm_fb_device_alloc(struct msm_fb_panel_data *pdata,
 int panel_next_on(struct platform_device *pdev);
 int panel_next_off(struct platform_device *pdev);
 
-int lcdc_device_register(struct msm_panel_info *pinfo, struct msm_fb_panel_data *pdata);
+int lcdc_device_register(struct msm_panel_info *pinfo);
 
 int mddi_toshiba_device_register(struct msm_panel_info *pinfo,
 					u32 channel, u32 panel);

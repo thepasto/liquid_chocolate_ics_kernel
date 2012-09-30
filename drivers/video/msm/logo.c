@@ -26,21 +26,12 @@
 
 #define fb_width(fb)	((fb)->var.xres)
 #define fb_height(fb)	((fb)->var.yres)
-#define fb_depth(fb)	((fb)->var.bits_per_pixel >> 3)
-#define fb_size(fb)	(fb_width(fb) * fb_height(fb) * fb_depth(fb))
+#define fb_size(fb)	((fb)->var.xres * (fb)->var.yres * 2)
 
 static void memset16(void *_ptr, unsigned short val, unsigned count)
 {
 	unsigned short *ptr = _ptr;
 	count >>= 1;
-	while (count--)
-		*ptr++ = val;
-}
-
-static void memset32(void *_ptr, unsigned int val, unsigned count)
-{
-	unsigned int *ptr = _ptr;
-	count >>= 2;
 	while (count--)
 		*ptr++ = val;
 }
@@ -51,8 +42,7 @@ int load_565rle_image(char *filename)
 	struct fb_info *info;
 	int fd, err = 0;
 	unsigned count, max;
-	unsigned short *data, *ptr;
-	unsigned char *bits;
+	unsigned short *data, *bits, *ptr;
 
 	info = registered_fb[0];
 	if (!info) {
@@ -87,22 +77,13 @@ int load_565rle_image(char *filename)
 
 	max = fb_width(info) * fb_height(info);
 	ptr = data;
-	bits = (unsigned char *)(info->screen_base);
+	bits = (unsigned short *)(info->screen_base);
 	while (count > 3) {
-		unsigned int n = ptr[0];
+		unsigned n = ptr[0];
 		if (n > max)
 			break;
-
-		if (fb_depth(info) == 2) {
-			memset16(bits, ptr[1], n << 1);
-		} else {
-			unsigned int widepixel = ptr[1];
-			widepixel = (widepixel & 0xf800) << (19-11) |
-					(widepixel & 0x07e0) << (10-5) |
-					(widepixel & 0x001f) << (3-0);
-			memset32(bits, widepixel, n << 2);
-		}
-		bits += n * fb_depth(info);
+		memset16(bits, ptr[1], n << 1);
+		bits += n;
 		max -= n;
 		ptr += 2;
 		count -= 4;

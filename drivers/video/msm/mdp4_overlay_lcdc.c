@@ -112,13 +112,14 @@ int mdp_lcdc_on(struct platform_device *pdev)
 		ptype = mdp4_overlay_format2type(mfd->fb_imgType);
 		if (ptype < 0)
 			printk(KERN_INFO "%s: format2type failed\n", __func__);
-		pipe = mdp4_overlay_pipe_alloc(ptype);
+		pipe = mdp4_overlay_pipe_alloc(ptype, FALSE);
 		if (pipe == NULL)
 			printk(KERN_INFO "%s: pipe_alloc failed\n", __func__);
 		pipe->pipe_used++;
 		pipe->mixer_stage  = MDP4_MIXER_STAGE_BASE;
 		pipe->mixer_num  = MDP4_MIXER0;
 		pipe->src_format = mfd->fb_imgType;
+		mdp4_overlay_panel_mode(pipe->mixer_num, MDP4_PANEL_LCDC);
 		ret = mdp4_overlay_format2pipe(pipe);
 		if (ret < 0)
 			printk(KERN_INFO "%s: format2pipe failed\n", __func__);
@@ -158,8 +159,8 @@ int mdp_lcdc_on(struct platform_device *pdev)
 	lcdc_underflow_clr = mfd->panel_info.lcdc.underflow_clr;
 	lcdc_hsync_skew = mfd->panel_info.lcdc.hsync_skew;
 
-	lcdc_width = mfd->panel_info.xres;
-	lcdc_height = mfd->panel_info.yres;
+	lcdc_width = var->xres;
+	lcdc_height = var->yres;
 	lcdc_bpp = mfd->panel_info.bpp;
 
 	hsync_period =
@@ -224,6 +225,11 @@ int mdp_lcdc_on(struct platform_device *pdev)
 	MDP_OUTP(MDP_BASE + LCDC_BASE + 0x20, active_v_start);
 	MDP_OUTP(MDP_BASE + LCDC_BASE + 0x24, active_v_end);
 
+#ifdef CONFIG_ARCH_MSM8X60
+	mdp4_vg_qseed_init(0);
+	mdp4_vg_qseed_init(1);
+#endif
+
 	ret = panel_next_on(pdev);
 	if (ret == 0) {
 		/* enable LCDC block */
@@ -259,6 +265,35 @@ int mdp_lcdc_off(struct platform_device *pdev)
 #endif
 
 	return ret;
+}
+
+int mdp4_lcdc_overlay_blt_offset(int *off)
+{
+	if (lcdc_pipe->blt_addr == 0) {
+		*off = -1;
+		return -EINVAL;
+	}
+
+	*off = 0;
+	return 0;
+}
+
+void mdp4_lcdc_overlay_blt(ulong addr)
+{
+	unsigned long flag;
+
+	spin_lock_irqsave(&mdp_spin_lock, flag);
+	lcdc_pipe->blt_addr = addr;
+	lcdc_pipe->blt_cnt = 0;
+	spin_unlock_irqrestore(&mdp_spin_lock, flag);
+
+	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+	MDP_OUTP(MDP_BASE + LCDC_BASE, 0);	/* stop lcdc */
+	msleep(50);
+	mdp4_overlayproc_cfg(lcdc_pipe);
+	mdp4_overlay_dmap_xy(lcdc_pipe);
+	MDP_OUTP(MDP_BASE + LCDC_BASE, 1);	/* start lcdc */
+	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 }
 
 /*

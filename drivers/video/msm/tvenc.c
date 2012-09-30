@@ -26,6 +26,7 @@
 #include <linux/delay.h>
 #include <mach/hardware.h>
 #include <linux/io.h>
+#include <linux/pm_runtime.h>
 
 #include <asm/system.h>
 #include <asm/mach-types.h>
@@ -59,9 +60,28 @@ static int pdev_list_cnt;
 
 static struct clk *tvenc_clk;
 static struct clk *tvdac_clk;
+static struct clk *tvenc_pclk;
+static struct clk *mdp_tv_clk;
 #ifdef CONFIG_FB_MSM_MDP40
 static struct clk *tv_src_clk;
 #endif
+
+static int tvenc_runtime_suspend(struct device *dev)
+{
+	dev_dbg(dev, "pm_runtime: suspending...\n");
+	return 0;
+}
+
+static int tvenc_runtime_resume(struct device *dev)
+{
+	dev_dbg(dev, "pm_runtime: resuming...\n");
+	return 0;
+}
+
+static struct dev_pm_ops tvenc_dev_pm_ops = {
+	.runtime_suspend = tvenc_runtime_suspend,
+	.runtime_resume = tvenc_runtime_resume,
+};
 
 static struct platform_driver tvenc_driver = {
 	.probe = tvenc_probe,
@@ -71,28 +91,119 @@ static struct platform_driver tvenc_driver = {
 	.shutdown = NULL,
 	.driver = {
 		   .name = "tvenc",
+		   .pm = &tvenc_dev_pm_ops
 		   },
 };
 
-static struct tvenc_platform_data *tvenc_pdata;
+int tvenc_set_encoder_clock(boolean clock_on)
+{
+	int ret = 0;
+	if (clock_on) {
+#ifdef CONFIG_FB_MSM_MDP40
+		/* Consolidated clock used by both HDMI & TV encoder.
+		Clock exists only in MDP4 and not in older versions */
+		ret = clk_set_rate(tv_src_clk, 27000000);
+		if (ret) {
+			pr_err("%s: tvsrc_clk set rate failed! %d\n",
+				__func__, ret);
+			goto tvsrc_err;
+		}
+#endif
+		ret = clk_enable(tvenc_clk);
+		if (ret) {
+			pr_err("%s: tvenc_clk enable failed! %d\n",
+				__func__, ret);
+			goto tvsrc_err;
+		}
+
+		if (!IS_ERR(tvenc_pclk)) {
+			ret = clk_enable(tvenc_pclk);
+			if (ret) {
+				pr_err("%s: tvenc_pclk enable failed! %d\n",
+					__func__, ret);
+				goto tvencp_err;
+			}
+		}
+		return ret;
+	} else {
+		if (!IS_ERR(tvenc_pclk))
+			clk_disable(tvenc_pclk);
+		clk_disable(tvenc_clk);
+		return ret;
+	}
+tvencp_err:
+	clk_disable(tvenc_clk);
+tvsrc_err:
+	return ret;
+}
+
+int tvenc_set_clock(boolean clock_on)
+{
+	int ret = 0;
+	if (clock_on) {
+		if (tvenc_pdata->poll) {
+			ret = tvenc_set_encoder_clock(CLOCK_ON);
+			if (ret) {
+				pr_err("%s: TVenc clock(s) enable failed! %d\n",
+					__func__, ret);
+				goto tvenc_err;
+			}
+		}
+		ret = clk_enable(tvdac_clk);
+		if (ret) {
+			pr_err("%s: tvdac_clk enable failed! %d\n",
+				__func__, ret);
+			goto tvdac_err;
+		}
+		if (!IS_ERR(mdp_tv_clk)) {
+			ret = clk_enable(mdp_tv_clk);
+			if (ret) {
+				pr_err("%s: mdp_tv_clk enable failed! %d\n",
+					__func__, ret);
+				goto mdptv_err;
+			}
+		}
+		return ret;
+	} else {
+		if (!IS_ERR(mdp_tv_clk))
+			clk_disable(mdp_tv_clk);
+		clk_disable(tvdac_clk);
+		if (tvenc_pdata->poll)
+			tvenc_set_encoder_clock(CLOCK_OFF);
+		return ret;
+	}
+
+mdptv_err:
+	clk_disable(tvdac_clk);
+tvdac_err:
+	tvenc_set_encoder_clock(CLOCK_OFF);
+tvenc_err:
+	return ret;
+}
 
 static int tvenc_off(struct platform_device *pdev)
 {
 	int ret = 0;
 
-	ret = panel_next_off(pdev);
+	struct msm_fb_data_type *mfd;
 
-	clk_disable(tvenc_clk);
-	clk_disable(tvdac_clk);
+	mfd = platform_get_drvdata(pdev);
+
+	ret = panel_next_off(pdev);
+	if (ret)
+		pr_err("%s: tvout_off failed! %d\n",
+		__func__, ret);
+
+	tvenc_set_clock(CLOCK_OFF);
 
 	if (tvenc_pdata && tvenc_pdata->pm_vid_en)
 		ret = tvenc_pdata->pm_vid_en(0);
 
-	pm_qos_update_requirement(PM_QOS_SYSTEM_BUS_FREQ , "tvenc",
-				  PM_QOS_DEFAULT_VALUE);
+	pm_qos_update_request(mfd->pm_qos_req,
+			      PM_QOS_DEFAULT_VALUE);
 
 	if (ret)
-		printk(KERN_ERR "%s: pm_vid_en(off) failed! %d\n",
+		pr_err("%s: pm_vid_en(off) failed! %d\n",
 		__func__, ret);
 
 	return ret;
@@ -102,30 +213,36 @@ static int tvenc_on(struct platform_device *pdev)
 {
 	int ret = 0;
 
-	pm_qos_update_requirement(PM_QOS_SYSTEM_BUS_FREQ , "tvenc",
-#ifdef CONFIG_MSM_NPA_SYSTEM_BUS
-				  MSM_SYSTEM_BUS_RATE);
-#else
-				  65000);
-#endif
+	struct msm_fb_data_type *mfd = platform_get_drvdata(pdev);
+
+	pm_qos_update_request(mfd->pm_qos_req, MSM_SYSTEM_BUS_RATE);
 	if (tvenc_pdata && tvenc_pdata->pm_vid_en)
 		ret = tvenc_pdata->pm_vid_en(1);
-
 	if (ret) {
-		printk(KERN_ERR "%s: pm_vid_en(on) failed! %d\n",
+		pr_err("%s: pm_vid_en(on) failed! %d\n",
 		__func__, ret);
 		return ret;
 	}
 
-	clk_enable(tvenc_clk);
-	clk_enable(tvdac_clk);
-#ifdef CONFIG_FB_MSM_MDP40
-	clk_enable(tv_src_clk);
-#endif
+	ret = tvenc_set_clock(CLOCK_ON);
+	if (ret) {
+		pr_err("%s: tvenc_set_clock(CLOCK_ON) failed! %d\n",
+		__func__, ret);
+		tvenc_pdata->pm_vid_en(0);
+		goto error;
+	}
 
 	ret = panel_next_on(pdev);
+	if (ret) {
+		pr_err("%s: tvout_on failed! %d\n",
+		__func__, ret);
+		tvenc_set_clock(CLOCK_OFF);
+		tvenc_pdata->pm_vid_en(0);
+	}
 
+error:
 	return ret;
+
 }
 
 void tvenc_gen_test_pattern(struct msm_fb_data_type *mfd)
@@ -199,8 +316,7 @@ static int tvenc_probe(struct platform_device *pdev)
 					pdev->resource[0].end -
 					pdev->resource[0].start + 1);
 		if (!tvenc_base) {
-			printk(KERN_ERR
-				"tvenc_base ioremap failed!\n");
+			pr_err("tvenc_base ioremap failed!\n");
 			return -ENOMEM;
 		}
 		tvenc_pdata = pdev->dev.platform_data;
@@ -241,7 +357,7 @@ static int tvenc_probe(struct platform_device *pdev)
 	if (platform_device_add_data
 	    (mdp_dev, pdev->dev.platform_data,
 	     sizeof(struct msm_fb_panel_data))) {
-		printk(KERN_ERR "tvenc_probe: platform_device_add_data failed!\n");
+		pr_err("tvenc_probe: platform_device_add_data failed!\n");
 		platform_device_put(mdp_dev);
 		return -ENOMEM;
 	}
@@ -275,7 +391,19 @@ static int tvenc_probe(struct platform_device *pdev)
 	if (rc)
 		goto tvenc_probe_err;
 
+	pm_runtime_set_active(&pdev->dev);
+	pm_runtime_enable(&pdev->dev);
+
+
+
 	pdev_list[pdev_list_cnt++] = pdev;
+
+	mfd->pm_qos_req = pm_qos_add_request(PM_QOS_SYSTEM_BUS_FREQ,
+					     PM_QOS_DEFAULT_VALUE);
+
+	if (!mfd->pm_qos_req)
+		goto tvenc_probe_err;
+
 	return 0;
 
 tvenc_probe_err:
@@ -285,7 +413,13 @@ tvenc_probe_err:
 
 static int tvenc_remove(struct platform_device *pdev)
 {
-	pm_qos_remove_requirement(PM_QOS_SYSTEM_BUS_FREQ , "tvenc");
+	struct msm_fb_data_type *mfd;	
+
+	mfd = platform_get_drvdata(pdev);
+
+	pm_qos_remove_request(mfd->pm_qos_req);
+
+	pm_runtime_disable(&pdev->dev);
 	return 0;
 }
 
@@ -296,8 +430,11 @@ static int tvenc_register_driver(void)
 
 static int __init tvenc_driver_init(void)
 {
+	int ret;
 	tvenc_clk = clk_get(NULL, "tv_enc_clk");
 	tvdac_clk = clk_get(NULL, "tv_dac_clk");
+	tvenc_pclk = clk_get(NULL, "tv_enc_pclk");
+	mdp_tv_clk = clk_get(NULL, "mdp_tv_clk");
 
 #ifdef CONFIG_FB_MSM_MDP40
 	tv_src_clk = clk_get(NULL, "tv_src_clk");
@@ -306,17 +443,35 @@ static int __init tvenc_driver_init(void)
 #endif
 
 	if (IS_ERR(tvenc_clk)) {
-		printk(KERN_ERR "error: can't get tvenc_clk!\n");
-		return IS_ERR(tvenc_clk);
+		pr_err("%s: error: can't get tvenc_clk!\n", __func__);
+		return PTR_ERR(tvenc_clk);
 	}
 
 	if (IS_ERR(tvdac_clk)) {
-		printk(KERN_ERR "error: can't get tvdac_clk!\n");
-		return IS_ERR(tvdac_clk);
+		pr_err("%s: error: can't get tvdac_clk!\n", __func__);
+		return PTR_ERR(tvdac_clk);
 	}
 
-	pm_qos_add_requirement(PM_QOS_SYSTEM_BUS_FREQ , "tvenc",
-			       PM_QOS_DEFAULT_VALUE);
+	if (IS_ERR(tvenc_pclk)) {
+		ret = PTR_ERR(tvenc_pclk);
+		if (-ENOENT == ret)
+			pr_info("%s: tvenc_pclk does not exist!\n", __func__);
+		else {
+			pr_err("%s: error: can't get tvenc_pclk!\n", __func__);
+			return ret;
+		}
+	}
+
+	if (IS_ERR(mdp_tv_clk)) {
+		ret = PTR_ERR(mdp_tv_clk);
+		if (-ENOENT == ret)
+			pr_info("%s: mdp_tv_clk does not exist!\n", __func__);
+		else {
+			pr_err("%s: error: can't get mdp_tv_clk!\n", __func__);
+			return ret;
+		}
+	}
+
 	return tvenc_register_driver();
 }
 

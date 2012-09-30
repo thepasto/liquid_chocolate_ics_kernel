@@ -102,7 +102,7 @@ int mdp4_dsi_video_on(struct platform_device *pdev)
 		ptype = mdp4_overlay_format2type(mfd->fb_imgType);
 		if (ptype < 0)
 			printk(KERN_INFO "%s: format2type failed\n", __func__);
-		pipe = mdp4_overlay_pipe_alloc(ptype);
+		pipe = mdp4_overlay_pipe_alloc(ptype, FALSE);
 		if (pipe == NULL) {
 			printk(KERN_INFO "%s: pipe_alloc failed\n", __func__);
 			return -EBUSY;
@@ -111,6 +111,7 @@ int mdp4_dsi_video_on(struct platform_device *pdev)
 		pipe->mixer_stage  = MDP4_MIXER_STAGE_BASE;
 		pipe->mixer_num  = MDP4_MIXER0;
 		pipe->src_format = mfd->fb_imgType;
+		mdp4_overlay_panel_mode(pipe->mixer_num, MDP4_PANEL_DSI_VIDEO);
 		ret = mdp4_overlay_format2pipe(pipe);
 		if (ret < 0)
 			printk(KERN_INFO "%s: format2type failed\n", __func__);
@@ -236,12 +237,14 @@ int mdp4_dsi_video_off(struct platform_device *pdev)
 
 	ret = panel_next_off(pdev);
 
+#ifdef MIPI_DSI_RGB_UNSTAGE
 	/* delay to make sure the last frame finishes */
 	msleep(100);
 
-	/* dis-engage rgb1 from mixer1 */
+	/* dis-engage rgb0 from mixer0 */
 	if (dsi_pipe)
 		mdp4_mixer_stage_down(dsi_pipe);
+#endif
 
 	return ret;
 }

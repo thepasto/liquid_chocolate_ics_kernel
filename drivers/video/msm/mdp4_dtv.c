@@ -34,6 +34,7 @@
 #include <asm/mach-types.h>
 #include <mach/hardware.h>
 #include <mach/msm_reqs.h>
+#include <linux/pm_runtime.h>
 
 #include "msm_fb.h"
 
@@ -52,6 +53,24 @@ static struct clk *tv_dac_clk;
 static struct clk *hdmi_clk;
 static struct clk *mdp_tv_clk;
 
+
+static int mdp4_dtv_runtime_suspend(struct device *dev)
+{
+	dev_dbg(dev, "pm_runtime: suspending...\n");
+	return 0;
+}
+
+static int mdp4_dtv_runtime_resume(struct device *dev)
+{
+	dev_dbg(dev, "pm_runtime: resuming...\n");
+	return 0;
+}
+
+static const struct dev_pm_ops mdp4_dtv_dev_pm_ops = {
+	.runtime_suspend = mdp4_dtv_runtime_suspend,
+	.runtime_resume = mdp4_dtv_runtime_resume,
+};
+
 static struct platform_driver dtv_driver = {
 	.probe = dtv_probe,
 	.remove = dtv_remove,
@@ -60,10 +79,12 @@ static struct platform_driver dtv_driver = {
 	.shutdown = NULL,
 	.driver = {
 		   .name = "dtv",
+		   .pm = &mdp4_dtv_dev_pm_ops,
 		   },
 };
 
 static struct lcdc_platform_data *dtv_pdata;
+static struct pm_qos_request_list *pm_qos_req = NULL;
 
 static int dtv_off(struct platform_device *pdev)
 {
@@ -85,7 +106,8 @@ static int dtv_off(struct platform_device *pdev)
 	if (dtv_pdata && dtv_pdata->lcdc_gpio_config)
 		ret = dtv_pdata->lcdc_gpio_config(0);
 
-	pm_qos_update_requirement(PM_QOS_SYSTEM_BUS_FREQ , "dtv",
+	if(pm_qos_req)
+		pm_qos_update_request(pm_qos_req,
 					PM_QOS_DEFAULT_VALUE);
 
 	return ret;
@@ -110,8 +132,9 @@ static int dtv_on(struct platform_device *pdev)
 		pm_qos_rate = 58000;
 #endif
 
-	pm_qos_update_requirement(PM_QOS_SYSTEM_BUS_FREQ , "dtv",
-						pm_qos_rate);
+	if(pm_qos_req)
+		pm_qos_update_request(pm_qos_req, pm_qos_rate);
+
 	mfd = platform_get_drvdata(pdev);
 
 	ret = clk_set_rate(tv_src_clk, mfd->fbi->var.pixclock);
@@ -219,6 +242,9 @@ static int dtv_probe(struct platform_device *pdev)
 	if (rc)
 		goto dtv_probe_err;
 
+	pm_runtime_set_active(&pdev->dev);
+	pm_runtime_enable(&pdev->dev);
+
 	pdev_list[pdev_list_cnt++] = pdev;
 		return 0;
 
@@ -229,7 +255,10 @@ dtv_probe_err:
 
 static int dtv_remove(struct platform_device *pdev)
 {
-	pm_qos_remove_requirement(PM_QOS_SYSTEM_BUS_FREQ , "dtv");
+	if(pm_qos_req)
+		pm_qos_remove_request(pm_qos_req);
+
+	pm_runtime_disable(&pdev->dev);
 	return 0;
 }
 
@@ -269,7 +298,7 @@ static int __init dtv_driver_init(void)
 	if (IS_ERR(mdp_tv_clk))
 		mdp_tv_clk = NULL;
 
-	pm_qos_add_requirement(PM_QOS_SYSTEM_BUS_FREQ , "dtv",
+	pm_qos_req = pm_qos_add_request(PM_QOS_SYSTEM_BUS_FREQ , 
 				PM_QOS_DEFAULT_VALUE);
 
 	return dtv_register_driver();

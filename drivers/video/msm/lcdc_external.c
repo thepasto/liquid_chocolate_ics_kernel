@@ -23,10 +23,9 @@ static int __init lcdc_external_init(void)
 	int ret;
 	struct msm_panel_info pinfo;
 
-#ifdef CONFIG_FB_MSM_MDDI_AUTO_DETECT
 	if (msm_fb_detect_client("lcdc_external"))
 		return 0;
-#endif
+
 	pinfo.xres = 1280;
 	pinfo.yres = 720;
 	pinfo.type = LCDC_PANEL;
@@ -46,7 +45,7 @@ static int __init lcdc_external_init(void)
 	pinfo.lcdc.underflow_clr = 0xff;	/* blue */
 	pinfo.lcdc.hsync_skew = 0;
 
-	ret = lcdc_device_register(&pinfo, NULL);
+	ret = lcdc_device_register(&pinfo);
 	if (ret)
 		printk(KERN_ERR "%s: failed to register device!\n", __func__);
 

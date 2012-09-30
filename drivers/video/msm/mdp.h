@@ -550,6 +550,7 @@ struct mdp_dma_data {
 #define DMA_AHBM_LCD_SEL_PRIMARY            0
 #define DMA_AHBM_LCD_SEL_SECONDARY          0
 #define DMA_IBUF_C3ALPHA_EN                 0
+#define DMA_BUF_FORMAT_RGB565		BIT(25)
 #define DMA_DITHER_EN                       BIT(24)	/* dma_p */
 #define DMA_DEFLKR_EN                       BIT(24)	/* dma_e */
 #define DMA_MDDI_DMAOUT_LCD_SEL_PRIMARY     0
@@ -666,12 +667,20 @@ int mdp_hw_cursor_update(struct fb_info *info, struct fb_cursor *cursor);
 void mdp_enable_irq(uint32 term);
 void mdp_disable_irq(uint32 term);
 void mdp_disable_irq_nosync(uint32 term);
-int mdp_get_bytes_per_pixel(uint32_t format);
+int mdp_get_bytes_per_pixel(uint32_t format,
+				 struct msm_fb_data_type *mfd);
+int mdp_set_core_clk(uint16 perf_level);
 
 #ifdef MDP_HW_VSYNC
 void mdp_hw_vsync_clk_enable(struct msm_fb_data_type *mfd);
 void mdp_hw_vsync_clk_disable(struct msm_fb_data_type *mfd);
 #endif
 
+#ifdef CONFIG_DEBUG_FS
+int mdp_debugfs_init(void);
+#endif
+
 void mdp_dma_s_update(struct msm_fb_data_type *mfd);
+int mdp_start_histogram(struct fb_info *info);
+int mdp_stop_histogram(struct fb_info *info);
 #endif /* MDP_H */

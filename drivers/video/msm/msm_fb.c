@@ -174,14 +174,23 @@ static struct led_classdev backlight_led = {
 #endif
 
 static struct msm_fb_platform_data *msm_fb_pdata;
+static char panel_name[128];
+module_param_string(panel_name, panel_name, sizeof(panel_name) , 0);
 
-#ifdef CONFIG_FB_MSM_MDDI_AUTO_DETECT
 int msm_fb_detect_client(const char *name)
 {
 	int ret = -EPERM;
 #ifdef CONFIG_FB_MSM_MDDI_AUTO_DETECT
 	u32 id;
 #endif
+
+	MSM_FB_DEBUG("\n name = %s, panel_name = %s", name, panel_name);
+	if (strlen(panel_name)) {
+		if (!strcmp((char *)panel_name, name))
+			return 0;
+		else
+			return -EPERM;
+	}
 
 	if (msm_fb_pdata && msm_fb_pdata->detect_client) {
 		ret = msm_fb_pdata->detect_client(name);
@@ -197,7 +206,6 @@ int msm_fb_detect_client(const char *name)
 
 	return ret;
 }
-#endif
 
 static ssize_t msm_fb_msm_fb_type(struct device *dev,
 				  struct device_attribute *attr, char *buf)
@@ -563,8 +571,6 @@ static struct platform_driver msm_fb_driver = {
 	.remove = msm_fb_remove,
 #ifndef CONFIG_HAS_EARLYSUSPEND
 	.suspend = msm_fb_suspend,
-	.suspend_late = NULL,
-	.resume_early = NULL,
 	.resume = msm_fb_resume,
 #endif
 	.shutdown = NULL,
@@ -580,10 +586,6 @@ static void msmfb_early_suspend(struct early_suspend *h)
 {
 	struct msm_fb_data_type *mfd = container_of(h, struct msm_fb_data_type,
 						    early_suspend);
-	struct fb_info *fbi = mfd->fbi;
-
-	/* set the last frame on suspend as black frame */
-	memset(fbi->screen_base, 0x0, fbi->fix.smem_len);
 	msm_fb_suspend_sub(mfd);
 }
 
@@ -636,7 +638,7 @@ static int msm_fb_blank_sub(int blank_mode, struct fb_info *info,
 	switch (blank_mode) {
 	case FB_BLANK_UNBLANK:
 		if (!mfd->panel_power_on) {
-			mdelay(100);
+			msleep(16);
 			ret = pdata->on(mfd->pdev);
 			if (ret == 0) {
 				mfd->panel_power_on = TRUE;
@@ -866,17 +868,11 @@ static int msm_fb_register(struct msm_fb_data_type *mfd)
 	var->grayscale = 0,	/* No graylevels */
 	var->nonstd = 0,	/* standard pixel format */
 	var->activate = FB_ACTIVATE_VBL,	/* activate it at vsync */
-#if defined (CONFIG_MACH_ACER_A1)
-	var->height = panel_info->height;       // height of picture in mm
-	var->width = panel_info->width;         // width of picture in mm
-#else
 	var->height = -1,	/* height of picture in mm */
 	var->width = -1,	/* width of picture in mm */
-#endif
 	var->accel_flags = 0,	/* acceleration flags */
 	var->sync = 0,	/* see FB_SYNC_* */
 	var->rotate = 0,	/* angle we rotate counter clockwise */
-	var->reserved[4] = 60;
 	mfd->op_enable = FALSE;
 
 	switch (mfd->fb_imgType) {
@@ -1015,7 +1011,6 @@ static int msm_fb_register(struct msm_fb_data_type *mfd)
 		 */
 	    id = (int *)&mfd->panel;
 
-#if 0
 #if defined(CONFIG_FB_MSM_MDP22)
 	snprintf(fix->id, sizeof(fix->id), "msmfb22_%x", (__u32) *id);
 #elif defined(CONFIG_FB_MSM_MDP30)
@@ -1027,9 +1022,7 @@ static int msm_fb_register(struct msm_fb_data_type *mfd)
 #else
 	error CONFIG_FB_MSM_MDP undefined !
 #endif
-#endif
-	snprintf(fix->id, sizeof(fix->id), "msmfb");
-	fbi->fbops = &msm_fb_ops;
+	 fbi->fbops = &msm_fb_ops;
 	fbi->flags = FBINFO_FLAG_DEFAULT;
 	fbi->pseudo_palette = msm_fb_pseudo_palette;
 
@@ -1291,6 +1284,7 @@ static int msm_fb_release(struct fb_info *info, int user)
 		}
 	}
 
+	pm_runtime_put(info->dev);
 	return ret;
 }
 
@@ -1302,7 +1296,6 @@ static int msm_fb_pan_display(struct fb_var_screeninfo *var,
 	struct mdp_dirty_region dirty;
 	struct mdp_dirty_region *dirtyPtr = NULL;
 	struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)info->par;
-	int ret = 0;
 
 	if ((!mfd->op_enable) || (!mfd->panel_power_on))
 		return -EPERM;
@@ -1725,7 +1718,8 @@ int mdp_blit(struct fb_info *info, struct mdp_blit_req *req)
 #if defined CONFIG_FB_MSM_MDP31
 	/* MDP width split workaround */
 	remainder = (req->dst_rect.w)%32;
-	ret = mdp_get_bytes_per_pixel(req->dst.format);
+	ret = mdp_get_bytes_per_pixel(req->dst.format,
+					(struct msm_fb_data_type *)info->par);
 	if (ret <= 0) {
 		printk(KERN_ERR "mdp_ppp: incorrect bpp!\n");
 		return -EINVAL;
@@ -1887,7 +1881,8 @@ int mdp_blit(struct fb_info *info, struct mdp_blit_req *req)
 #elif defined CONFIG_FB_MSM_MDP30
 	/* MDP width split workaround */
 	remainder = (req->dst_rect.w)%16;
-	ret = mdp_get_bytes_per_pixel(req->dst.format);
+	ret = mdp_get_bytes_per_pixel(req->dst.format,
+					(struct msm_fb_data_type *)info->par);
 	if (ret <= 0) {
 		printk(KERN_ERR "mdp_ppp: incorrect bpp!\n");
 		return -EINVAL;
@@ -2048,7 +2043,8 @@ static inline void msm_fb_dma_barrier_for_rect(struct fb_info *info,
 	unsigned long start;
 	size_t size;
 	char * const pmem_start = info->screen_base;
-	int bytes_per_pixel = mdp_get_bytes_per_pixel(img->format);
+	int bytes_per_pixel = mdp_get_bytes_per_pixel(img->format,
+					(struct msm_fb_data_type *)info->par);
 	if (bytes_per_pixel <= 0) {
 		printk(KERN_ERR "%s incorrect bpp!\n", __func__);
 		return;
@@ -2439,6 +2435,42 @@ static int msmfb_overlay_play_enable(struct fb_info *info, unsigned long *argp)
 	return 0;
 }
 
+
+static int msmfb_overlay_blt(struct fb_info *info, unsigned long *argp)
+{
+	int     ret;
+	struct msmfb_overlay_blt req;
+	struct file *p_src_file = 0;
+
+	ret = copy_from_user(&req, argp, sizeof(req));
+	if (ret) {
+		printk(KERN_ERR "%s:msmfb_overlay_blt ioctl failed\n",
+			__func__);
+		return ret;
+	}
+
+	ret = mdp4_overlay_blt(info, &req, &p_src_file);
+
+	if (p_src_file)
+		put_pmem_file(p_src_file);
+
+	return ret;
+}
+
+static int msmfb_overlay_blt_off(struct fb_info *info, unsigned long *argp)
+{
+	int	ret, off;
+
+	ret = mdp4_overlay_blt_offset(info, &off);
+
+	ret = copy_to_user(argp, &off, sizeof(off));
+	if (ret)
+		printk(KERN_ERR "%s:msmfb_overlay_blt_off ioctl failed\n",
+		__func__);
+
+	return ret;
+}
+
 #endif
 
 DECLARE_MUTEX(msm_fb_ioctl_ppp_sem);
@@ -2523,6 +2555,16 @@ static int msm_fb_ioctl(struct fb_info *info, unsigned int cmd,
 	case MSMFB_OVERLAY_PLAY_ENABLE:
 		down(&msm_fb_ioctl_ppp_sem);
 		ret = msmfb_overlay_play_enable(info, argp);
+		up(&msm_fb_ioctl_ppp_sem);
+		break;
+	case MSMFB_OVERLAY_BLT:
+		down(&msm_fb_ioctl_ppp_sem);
+		ret = msmfb_overlay_blt(info, argp);
+		up(&msm_fb_ioctl_ppp_sem);
+		break;
+	case MSMFB_OVERLAY_BLT_OFFSET:
+		down(&msm_fb_ioctl_ppp_sem);
+		ret = msmfb_overlay_blt_off(info, argp);
 		up(&msm_fb_ioctl_ppp_sem);
 		break;
 #endif
@@ -2655,6 +2697,19 @@ static int msm_fb_ioctl(struct fb_info *info, unsigned int cmd,
 		mutex_unlock(&msm_fb_ioctl_hist_sem);
 		break;
 
+	case MSMFB_HISTOGRAM_START:
+		if (!mfd->do_histogram)
+			return -ENODEV;
+		ret = mdp_start_histogram(info);
+		break;
+
+	case MSMFB_HISTOGRAM_STOP:
+		if (!mfd->do_histogram)
+			return -ENODEV;
+		ret = mdp_stop_histogram(info);
+		break;
+
+
 	case MSMFB_GET_PAGE_PROTECTION:
 		fb_page_protection.page_protection
 			= mfd->mdp_fb_page_protection;
@@ -2665,7 +2720,7 @@ static int msm_fb_ioctl(struct fb_info *info, unsigned int cmd,
 		break;
 
 	case MSMFB_SET_PAGE_PROTECTION:
-#ifdef CONFIG_ARCH_QSD8X50
+#if defined CONFIG_ARCH_QSD8X50 || defined CONFIG_ARCH_MSM8X60
 		ret = copy_from_user(&fb_page_protection, argp,
 				sizeof(fb_page_protection));
 		if (ret)
@@ -2710,7 +2765,7 @@ static int msm_fb_register_driver(void)
 	return platform_driver_register(&msm_fb_driver);
 }
 
-void msm_fb_add_device(struct platform_device *pdev)
+struct platform_device *msm_fb_add_device(struct platform_device *pdev)
 {
 	struct msm_fb_panel_data *pdata;
 	struct platform_device *this_dev = NULL;
@@ -2719,21 +2774,21 @@ void msm_fb_add_device(struct platform_device *pdev)
 	u32 type, id, fb_num;
 
 	if (!pdev)
-		return;
+		return NULL;
 	id = pdev->id;
 
 	pdata = pdev->dev.platform_data;
 	if (!pdata)
-		return;
+		return NULL;
 	type = pdata->panel_info.type;
 	fb_num = pdata->panel_info.fb_num;
 
 	if (fb_num <= 0)
-		return;
+		return NULL;
 
 	if (fbi_list_index >= MAX_FBI_LIST) {
 		printk(KERN_ERR "msm_fb: no more framebuffer info list!\n");
-		return;
+		return NULL;
 	}
 	/*
 	 * alloc panel device data
@@ -2743,7 +2798,7 @@ void msm_fb_add_device(struct platform_device *pdev)
 	if (!this_dev) {
 		printk(KERN_ERR
 		"%s: msm_fb_device_alloc failed!\n", __func__);
-		return;
+		return NULL;
 	}
 
 	/*
@@ -2753,7 +2808,7 @@ void msm_fb_add_device(struct platform_device *pdev)
 	if (fbi == NULL) {
 		platform_device_put(this_dev);
 		printk(KERN_ERR "msm_fb: can't alloca framebuffer info data!\n");
-		return;
+		return NULL;
 	}
 
 	mfd = (struct msm_fb_data_type *)fbi->par;
@@ -2781,8 +2836,9 @@ void msm_fb_add_device(struct platform_device *pdev)
 		platform_device_put(this_dev);
 		framebuffer_release(fbi);
 		fbi_list_index--;
-		return;
+		return NULL;
 	}
+	return this_dev;
 }
 EXPORT_SYMBOL(msm_fb_add_device);
 

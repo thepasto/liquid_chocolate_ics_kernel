@@ -30,15 +30,22 @@
 #ifndef MDP4_H
 #define MDP4_H
 
+extern uint32 mdp_revision;
 extern struct mdp_dma_data dma2_data;
 extern struct mdp_dma_data dma_s_data;
 extern struct mdp_dma_data dma_e_data;
 extern struct mdp_histogram mdp_hist;
 extern struct completion mdp_hist_comp;
+extern boolean mdp_is_hist_start;
 extern boolean mdp_is_in_isr;
 extern uint32 mdp_intr_mask;
 extern spinlock_t mdp_spin_lock;
 extern struct mdp4_statistic mdp4_stat;
+
+
+#define MDP4_HALCYON_V1		0
+#define MDP4_HALCYON_V2		1
+#define MDP4_HALCYON_V2_1	2
 
 #define MDP4_NONBLOCKING
 
@@ -83,6 +90,13 @@ enum {
 	EBI2_LCD1
 };
 
+#define MDP4_PANEL_MDDI		BIT(0)
+#define MDP4_PANEL_LCDC		BIT(1)
+#define MDP4_PANEL_DTV		BIT(2)
+#define MDP4_PANEL_ATV		BIT(3)
+#define MDP4_PANEL_DSI_VIDEO	BIT(4)
+#define MDP4_PANEL_DSI_CMD	BIT(5)
+
 enum {
 	OVERLAY_MODE_NONE,
 	OVERLAY_MODE_BLT
@@ -122,7 +136,7 @@ enum {
 #ifdef CONFIG_FB_MSM_OVERLAY
 #ifdef MDP4_MDDI_DMA_SWITCH
 #define MDP4_ANY_INTR_MASK	(INTR_OVERLAY0_DONE | INTR_DMA_S_DONE | \
-					INTR_DMA_P_HISTOGRAM)
+					INTR_DMA_P_DONE | INTR_DMA_P_HISTOGRAM)
 #else
 #define MDP4_ANY_INTR_MASK	(INTR_OVERLAY0_DONE| \
 				INTR_DMA_P_HISTOGRAM)
@@ -205,6 +219,7 @@ enum {
 #define MDP4_FORMAT_ALPHA_ENABLE	BIT(8)
 
 #define MDP4_OP_DEINT_ODD_REF  	BIT(19)
+#define MDP4_OP_DEINT_EN	BIT(18)
 #define MDP4_OP_IGC_LUT_EN	BIT(16)
 #define MDP4_OP_DITHER_EN     	BIT(15)
 #define MDP4_OP_FLIP_UD		BIT(14)
@@ -287,6 +302,9 @@ struct mdp4_overlay_pipe {
 	uint32 element1; /* 0 = C0, 1 = C1, 2 = C2, 3 = C3 */
 	uint32 element0; /* 0 = C0, 1 = C1, 2 = C2, 3 = C3 */
 	struct completion comp;
+	ulong blt_addr; /* blt mode addr */
+	uint32 blt_cnt;
+	uint32 blt_end;
 #ifdef MDP4_MDDI_DMA_SWITCH
 	struct completion dmas_comp;
 #endif
@@ -392,16 +410,18 @@ int mdp4_overlay_set(struct fb_info *info, struct mdp_overlay *req);
 int mdp4_overlay_unset(struct fb_info *info, int ndx);
 int mdp4_overlay_play(struct fb_info *info, struct msmfb_overlay_data *req,
 				struct file **pp_src_file);
-struct mdp4_overlay_pipe *mdp4_overlay_pipe_alloc(int ptype);
+struct mdp4_overlay_pipe *mdp4_overlay_pipe_alloc(int ptype, boolean usevg);
 void mdp4_overlay_pipe_free(struct mdp4_overlay_pipe *pipe);
 void mdp4_overlay_dmap_cfg(struct msm_fb_data_type *mfd, int lcdc);
 void mdp4_overlay_dmap_xy(struct mdp4_overlay_pipe *pipe);
 void mdp4_overlay_dmae_cfg(struct msm_fb_data_type *mfd, int atv);
 void mdp4_overlay_dmae_xy(struct mdp4_overlay_pipe *pipe);
 int mdp4_overlay_pipe_staged(int mixer);
+void mdp4_lcdc_primary_vsyn(void);
 void mdp4_overlay0_done_lcdc(void);
 void mdp4_overlay0_done_mddi(void);
 void mdp4_dma_s_done_mddi(void);
+void mdp4_dma_p_done_mddi(void);
 void mdp4_overlay1_done_dtv(void);
 void mdp4_overlay1_done_atv(void);
 void mdp4_mddi_overlay_restore(void);
@@ -416,15 +436,24 @@ void mdp4_mixer_gc_lut_setup(int mixer_num);
 void mdp4_fetch_cfg(uint32 clk);
 uint32 mdp4_rgb_igc_lut_cvt(uint32 ndx);
 void mdp4_vg_qseed_init(int);
+int mdp4_overlay_blt(struct fb_info *info, struct msmfb_overlay_blt *req,
+		struct file **pp_src_file);
+int mdp4_overlay_blt_offset(struct fb_info *info, int *off);
+int mdp4_mddi_overlay_blt_offset(int *off);
+void mdp4_mddi_overlay_blt(ulong addr);
+int mdp4_lcdc_overlay_blt_offset(int *off);
+void mdp4_lcdc_overlay_blt(ulong addr);
+void mdp4_overlay_panel_mode(int mixer_num, uint32 mode);
+uint32 mdp4_overlay_panel_list(void);
+void mdp4_lcdc_overlay_kickoff(struct msm_fb_data_type *mfd,
+			struct mdp4_overlay_pipe *pipe);
 
 #ifdef MDP4_MDDI_DMA_SWITCH
 void mdp_dmap_vsync_set(int enable);
 int mdp_dmap_vsync_get(void);
 #endif
-
-#ifdef CONFIG_DEBUG_FS
-int mdp4_debugfs_init(void);
-#endif
+void mdp_hw_cursor_done(void);
+void mdp_hw_cursor_init(void);
 
 int mdp_ppp_blit(struct fb_info *info, struct mdp_blit_req *req);
 

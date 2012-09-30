@@ -49,7 +49,7 @@ static struct msm_fb_panel_data lcdc_panel_data = {
 
 static int lcdc_dev_id;
 
-int lcdc_device_register(struct msm_panel_info *pinfo, struct msm_fb_panel_data *pdata)
+int lcdc_device_register(struct msm_panel_info *pinfo)
 {
 	struct platform_device *pdev = NULL;
 	int ret;
@@ -58,15 +58,9 @@ int lcdc_device_register(struct msm_panel_info *pinfo, struct msm_fb_panel_data 
 	if (!pdev)
 		return -ENOMEM;
 
-	if (pdata != NULL) {
-		pdata->panel_info = *pinfo;
-		ret = platform_device_add_data(pdev, pdata,
-				sizeof(struct msm_fb_panel_data));
-	} else {
-		lcdc_panel_data.panel_info = *pinfo;
-		ret = platform_device_add_data(pdev, &lcdc_panel_data,
-				sizeof(lcdc_panel_data));
-	}
+	lcdc_panel_data.panel_info = *pinfo;
+	ret = platform_device_add_data(pdev, &lcdc_panel_data,
+		sizeof(lcdc_panel_data));
 	if (ret) {
 		printk(KERN_ERR
 		  "%s: platform_device_add_data failed!\n", __func__);

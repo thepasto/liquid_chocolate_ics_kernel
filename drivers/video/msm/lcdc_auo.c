@@ -565,22 +565,20 @@ static int __init lcdc_auo_init(void)
 	pinfo.bpp = 16;
 	pinfo.fb_num = 2;
 	pinfo.clk_rate = 24576000; /* 24.576MHz to match the SPEC. from AMSS */
-	pinfo.width = 46; /* physical width in mm */
-	pinfo.height = 77; /* physical height in mm */
+	//pinfo.width = 46; /* physical width in mm */
+	//pinfo.height = 77; /* physical height in mm */
 
-	pinfo.lcdc.h_back_porch = 12;
-	pinfo.lcdc.h_front_porch = 16;
-	pinfo.lcdc.h_pulse_width = 4;
-	pinfo.lcdc.v_back_porch = 3;
-	pinfo.lcdc.v_front_porch = 3;
+	pinfo.lcdc.h_back_porch = 21;
+	pinfo.lcdc.h_front_porch = 81;
+	pinfo.lcdc.h_pulse_width = 60;
+	pinfo.lcdc.v_back_porch = 18;
+	pinfo.lcdc.v_front_porch = 27;
 	pinfo.lcdc.v_pulse_width = 2;
-	pinfo.lcdc.border_clr = 0;		/* blk */
+	pinfo.lcdc.border_clr = 0;	/* blk */
 	pinfo.lcdc.underflow_clr = 0xff;	/* blue */
 	pinfo.lcdc.hsync_skew = 0;
 	
-	pinfo.lcd.vsync_enable = FALSE;  //remove fpscap patch also for ics :)
-
-	ret = lcdc_device_register(&pinfo, &lcdc_auo_panel_data);
+	ret = lcdc_device_register(&pinfo);
 	if (ret)
 		printk(KERN_ERR "%s: failed to register device!\n", __func__);
 

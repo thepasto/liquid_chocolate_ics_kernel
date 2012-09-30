@@ -34,6 +34,7 @@
 #include <linux/clk.h>
 #include <linux/platform_device.h>
 #include <linux/pm_qos_params.h>
+#include <linux/regulator/consumer.h>
 #include <mach/msm_reqs.h>
 
 #include "msm_fb.h"
@@ -49,6 +50,7 @@ static int pdev_list_cnt;
 
 static struct clk *pixel_mdp_clk; /* drives the lcdc block in mdp */
 static struct clk *pixel_lcdc_clk; /* drives the lcdc interface */
+struct regulator *mdp_footswitch;
 
 static struct platform_driver lcdc_driver = {
 	.probe = lcdc_probe,
@@ -66,8 +68,13 @@ static struct lcdc_platform_data *lcdc_pdata;
 static int lcdc_off(struct platform_device *pdev)
 {
 	int ret = 0;
+	struct msm_fb_data_type *mfd;
 
+	mfd = platform_get_drvdata(pdev);
 	ret = panel_next_off(pdev);
+
+	if (mdp_footswitch)
+		regulator_disable(mdp_footswitch);
 
 	clk_disable(pixel_mdp_clk);
 	clk_disable(pixel_lcdc_clk);
@@ -79,7 +86,7 @@ static int lcdc_off(struct platform_device *pdev)
 		ret = lcdc_pdata->lcdc_gpio_config(0);
 
 	pm_qos_update_requirement(PM_QOS_SYSTEM_BUS_FREQ , "lcdc",
-				  PM_QOS_DEFAULT_VALUE);
+					PM_QOS_DEFAULT_VALUE);
 
 	return ret;
 }
@@ -104,9 +111,11 @@ static int lcdc_on(struct platform_device *pdev)
 #endif
 
 	pm_qos_update_requirement(PM_QOS_SYSTEM_BUS_FREQ , "lcdc",
-				  pm_qos_rate);
+						pm_qos_rate);
 	mfd = platform_get_drvdata(pdev);
 
+	mfd->fbi->var.pixclock = clk_round_rate(pixel_mdp_clk,
+					mfd->fbi->var.pixclock);
 	ret = clk_set_rate(pixel_mdp_clk, mfd->fbi->var.pixclock);
 	if (ret) {
 		pr_err("%s: Can't set MDP LCDC pixel clock to rate %u\n",
@@ -116,6 +125,9 @@ static int lcdc_on(struct platform_device *pdev)
 
 	clk_enable(pixel_mdp_clk);
 	clk_enable(pixel_lcdc_clk);
+
+	if (mdp_footswitch)
+		regulator_enable(mdp_footswitch);
 
 	if (lcdc_pdata && lcdc_pdata->lcdc_power_save)
 		lcdc_pdata->lcdc_power_save(1);
@@ -213,6 +225,12 @@ static int lcdc_probe(struct platform_device *pdev)
 		goto lcdc_probe_err;
 
 	pdev_list[pdev_list_cnt++] = pdev;
+
+	mfd->pm_qos_req = pm_qos_add_requirement(PM_QOS_SYSTEM_BUS_FREQ , "lcdc",
+				PM_QOS_DEFAULT_VALUE);
+	if (!mfd->pm_qos_req)
+		goto lcdc_probe_err;
+
 		return 0;
 
 lcdc_probe_err:
@@ -222,6 +240,10 @@ lcdc_probe_err:
 
 static int lcdc_remove(struct platform_device *pdev)
 {
+	struct msm_fb_data_type *mfd;
+
+	mfd = platform_get_drvdata(pdev);
+
 	pm_qos_remove_requirement(PM_QOS_SYSTEM_BUS_FREQ , "lcdc");
 	return 0;
 }
@@ -258,8 +280,10 @@ static int __init lcdc_driver_init(void)
 		}
 	}
 
-	pm_qos_add_requirement(PM_QOS_SYSTEM_BUS_FREQ , "lcdc",
-			       PM_QOS_DEFAULT_VALUE);
+	mdp_footswitch = regulator_get(NULL, "fs_mdp");
+	if (IS_ERR(mdp_footswitch))
+		mdp_footswitch = NULL;
+
 	return lcdc_register_driver();
 }
 

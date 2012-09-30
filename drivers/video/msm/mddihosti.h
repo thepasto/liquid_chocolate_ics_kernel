@@ -1,5 +1,4 @@
 /* Copyright (c) 2008-2010, Code Aurora Forum. All rights reserved.
- * Copyright (C) 2010 Sony Ericsson Mobile Communications AB.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -64,6 +63,12 @@
 #define MDDI_FIFO_ALLOC         0x0090
 #define MDDI_PAD_IO_CTL         0x00a0
 #define MDDI_PAD_CAL            0x00a4
+
+#ifdef ENABLE_MDDI_MULTI_READ_WRITE
+#define MDDI_HOST_MAX_CLIENT_REG_IN_SAME_ADDR 128
+#else
+#define MDDI_HOST_MAX_CLIENT_REG_IN_SAME_ADDR 1
+#endif
 
 extern int32 mddi_client_type;
 extern u32 mddi_msg_level;
@@ -159,17 +164,9 @@ do { \
 #define MDDI_HOST_TA2_LEN       0x001a
 #define MDDI_HOST_REV_RATE_DIV  0x0004
 #else
-/*
- * SEMC Patch: TA2 length should be 9 according to HITACHI specs
- *
- * #define MDDI_HOST_TA2_LEN       0x000c
- */
-#define MDDI_HOST_TA2_LEN       0x0009
-
+#define MDDI_HOST_TA2_LEN       0x000c
 #define MDDI_HOST_REV_RATE_DIV  0x0002
 #endif
-
-#define MDDI_ACCESS_PKT_REG_DATA_EXT	126
 
 #define MDDI_MSG_EMERG(msg, ...)    \
 	if (mddi_msg_level > 0)  \
@@ -389,49 +386,24 @@ typedef struct GCC_PACKED {
 	uint16 parameter_CRC;
 	/* 16-bit CRC of all bytes from the Packet Length to the Register Address. */
 
-	uint32 register_data_list;
+	uint32 register_data_list[MDDI_HOST_MAX_CLIENT_REG_IN_SAME_ADDR];
 	/* list of 4-byte register data values for/from client registers */
+	/* For multi-read/write, 512(128 * 4) bytes of data available */
 
-	uint32 register_data_list_ext[3];
-	/* SEMC Added register data values */
 } mddi_register_access_packet_type;
-
-typedef struct GCC_PACKED {
-	uint16 packet_length;
-	/* total # of bytes in the packet not including the packet_length field. */
-
-	uint16 packet_type;
-	/* A Packet Type of 146 identifies the packet as a Register Access Packet. */
-
-	uint16 bClient_ID;
-	/* This field is reserved for future use and shall be set to zero. */
-
-	uint16 read_write_info;
-	/* Bits 13:0  a 14-bit unsigned integer that specifies the number of
-	 *            32-bit Register Data List items to be transferred in the
-	 *            Register Data List field.
-	 * Bits[15:14] = 00  Write to register(s);
-	 * Bits[15:14] = 10  Read from register(s);
-	 * Bits[15:14] = 11  Response to a Read.
-	 * Bits[15:14] = 01  this value is reserved for future use. */
-
-	uint32 register_address;
-	/* the register address that is to be written to or read from. */
-
-	uint16 parameter_CRC;
-	/* 16-bit CRC of all bytes from the Packet Length to the Register Address. */
-
-	uint32 register_data_list;
-	/* list of 4-byte register data values for/from client registers */
-
-	uint32 register_data_list_ext[MDDI_ACCESS_PKT_REG_DATA_EXT];
-	/* SEMC Added register data values */
-} mddi_register_access_packet_xl_type;
 
 typedef union GCC_PACKED {
 	mddi_video_stream_packet_type video_pkt;
 	mddi_register_access_packet_type register_pkt;
-	mddi_register_access_packet_xl_type register_xl_pkt;
+#ifdef ENABLE_MDDI_MULTI_READ_WRITE
+	/* add 1008 byte pad to ensure 1024 byte llist struct, that can be
+	 * manipulated easily with cache */
+	uint32 alignment_pad[252];	/* 1008 bytes */
+#else
+	/* add 48 byte pad to ensure 64 byte llist struct, that can be
+	 * manipulated easily with cache */
+	uint32 alignment_pad[12];	/* 48 bytes */
+#endif
 } mddi_packet_header_type;
 
 typedef struct GCC_PACKED mddi_host_llist_struct {
@@ -452,8 +424,11 @@ typedef struct {
 	boolean in_use;
 } mddi_linked_list_notify_type;
 
-#define MDDI_LLIST_POOL_SIZE 0x8000
-
+#ifdef ENABLE_MDDI_MULTI_READ_WRITE
+#define MDDI_LLIST_POOL_SIZE 0x10000
+#else
+#define MDDI_LLIST_POOL_SIZE 0x1000
+#endif
 #define MDDI_MAX_NUM_LLIST_ITEMS (MDDI_LLIST_POOL_SIZE / \
 		 sizeof(mddi_linked_list_type))
 #define UNASSIGNED_INDEX MDDI_MAX_NUM_LLIST_ITEMS
@@ -544,6 +519,7 @@ typedef struct {
 #define MDDI_CMD_SEND_RTD            0x0700
 #define MDDI_CMD_LINK_ACTIVE         0x0900
 #define MDDI_CMD_PERIODIC_REV_ENCAP  0x0A00
+#define MDDI_CMD_FW_LINK_SKEW_CAL    0x0D00
 
 extern void mddi_host_init(mddi_host_type host);
 extern void mddi_host_powerdown(mddi_host_type host);
@@ -588,4 +564,5 @@ typedef struct {
 uint32 mddi_get_client_id(void);
 void mddi_mhctl_remove(mddi_host_type host_idx);
 void mddi_host_timer_service(unsigned long data);
+void mddi_host_client_cnt_reset(void);
 #endif /* MDDIHOSTI_H */

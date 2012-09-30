@@ -33,6 +33,8 @@
 #include <linux/uaccess.h>
 #include <linux/clk.h>
 #include <linux/platform_device.h>
+#include <linux/pm_runtime.h>
+#include <linux/pm_qos_params.h>
 
 #include "msm_fb.h"
 #include "mddihosti.h"
@@ -62,6 +64,30 @@ static struct clk *mddi_clk;
 static struct clk *mddi_pclk;
 static struct mddi_platform_data *mddi_pdata;
 
+static int mddi_runtime_suspend(struct device *dev)
+{
+	dev_dbg(dev, "pm_runtime: suspending...\n");
+	return 0;
+}
+
+static int mddi_runtime_resume(struct device *dev)
+{
+	dev_dbg(dev, "pm_runtime: resuming...\n");
+	return 0;
+}
+
+static int mddi_runtime_idle(struct device *dev)
+{
+	dev_dbg(dev, "pm_runtime: idling...\n");
+	return 0;
+}
+
+static struct dev_pm_ops mddi_dev_pm_ops = {
+	.runtime_suspend = mddi_runtime_suspend,
+	.runtime_resume = mddi_runtime_resume,
+	.runtime_idle = mddi_runtime_idle,
+};
+
 static struct platform_driver mddi_driver = {
 	.probe = mddi_probe,
 	.remove = mddi_remove,
@@ -71,11 +97,10 @@ static struct platform_driver mddi_driver = {
 	.resume = mddi_resume,
 #endif
 #endif
-	.suspend_late = NULL,
-	.resume_early = NULL,
 	.shutdown = NULL,
 	.driver = {
-		   .name = "mddi",
+		.name = "mddi",
+		.pm = &mddi_dev_pm_ops,
 		   },
 };
 
@@ -83,13 +108,19 @@ extern int int_mddi_pri_flag;
 
 static int mddi_off(struct platform_device *pdev)
 {
+	struct msm_fb_data_type *mfd;
+
 	int ret = 0;
 
+	mfd = platform_get_drvdata(pdev);
 	ret = panel_next_off(pdev);
 
 	if (mddi_pdata && mddi_pdata->mddi_power_save)
 		mddi_pdata->mddi_power_save(0);
 
+	pm_qos_update_request(mfd->pm_qos_req, PM_QOS_DEFAULT_VALUE);
+
+	pm_runtime_put(&pdev->dev);
 	return ret;
 }
 
@@ -100,7 +131,7 @@ static int mddi_on(struct platform_device *pdev)
 	struct msm_fb_data_type *mfd;
 
 	mfd = platform_get_drvdata(pdev);
-
+	pm_runtime_get(&pdev->dev);
 	if (mddi_pdata && mddi_pdata->mddi_power_save)
 		mddi_pdata->mddi_power_save(1);
 
@@ -117,6 +148,8 @@ static int mddi_on(struct platform_device *pdev)
 	if (clk_set_min_rate(mddi_clk, clk_rate) < 0)
 		printk(KERN_ERR "%s: clk_set_min_rate failed\n",
 			__func__);
+
+	pm_qos_update_request(mfd->pm_qos_req, 65000);
 
 	ret = panel_next_on(pdev);
 
@@ -228,7 +261,12 @@ static int mddi_probe(struct platform_device *pdev)
 	 * set driver data
 	 */
 	platform_set_drvdata(mdp_dev, mfd);
+	rc = pm_runtime_set_active(&pdev->dev);
+	if (rc < 0)
+		printk(KERN_ERR "pm_runtime: fail to set active\n");
 
+	rc = 0;
+	pm_runtime_enable(&pdev->dev);
 	/*
 	 * register in mdp driver
 	 */
@@ -244,6 +282,11 @@ static int mddi_probe(struct platform_device *pdev)
 	mfd->mddi_early_suspend.resume = mddi_early_resume;
 	register_early_suspend(&mfd->mddi_early_suspend);
 #endif
+
+	mfd->pm_qos_req = pm_qos_add_request(PM_QOS_SYSTEM_BUS_FREQ,
+					       PM_QOS_DEFAULT_VALUE);
+	if (!mfd->pm_qos_req)
+		goto mddi_probe_err;
 
 	return 0;
 
@@ -342,6 +385,7 @@ static void mddi_early_resume(struct early_suspend *h)
 
 static int mddi_remove(struct platform_device *pdev)
 {
+	pm_runtime_disable(&pdev->dev);
 	if (mddi_host_timer.function)
 		del_timer_sync(&mddi_host_timer);
 
