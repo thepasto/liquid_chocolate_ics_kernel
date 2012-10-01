@@ -34,6 +34,7 @@
 #include "mddihosti.h"
 #endif
 
+#define LCDC_AUO_PANEL_NAME			"lcdc_auo_wvga"
 
 //LCD GPIOs
 #define GPIO_LCD_RST  118
@@ -70,6 +71,8 @@
 #define CMD_END     0xFE
 #define CMD_DELAY   0xFF
 #define CMD_P2800   0xFD
+
+static struct msm_panel_common_pdata *lcdc_auo_pdata;
 
 static unsigned int LCMID[3];
 int ReadID(void)
@@ -533,6 +536,24 @@ static int lcdc_auo_panel_off(struct platform_device *pdev)
 	return 0;
 }
 
+static int auo_probe(struct platform_device *pdev)
+{
+	pr_info("%s: id=%d\n", __func__, pdev->id);
+	if (pdev->id == 0) {
+		lcdc_auo_pdata = pdev->dev.platform_data;
+		return 0;
+	}
+
+	msm_fb_add_device(pdev);
+
+	return 0;
+}
+
+static struct platform_driver this_driver = {
+	.probe		= auo_probe,
+	.driver.name	= LCDC_AUO_PANEL_NAME,
+};
+
 static void lcdc_auo_lcd_set_backlight(struct msm_fb_data_type *mfd) {
 	/* TODO implement backlight function */
 }
@@ -543,47 +564,60 @@ static struct msm_fb_panel_data lcdc_auo_panel_data = {
 	.set_backlight = lcdc_auo_lcd_set_backlight,
 };
 
-static struct msm_panel_info pinfo;
+static struct platform_device this_device = {
+	.name	= LCDC_AUO_PANEL_NAME,
+	.id	= 1,
+	.dev.platform_data = &lcdc_auo_panel_data,
+};
 
 static int __init lcdc_auo_init(void)
 {
 	int ret;
+	struct msm_panel_info *pinfo;
 
-#ifdef CONFIG_FB_MSM_TRY_MDDI_CATCH_LCDC_PRISM
-	ret = msm_fb_detect_client("lcdc_auo_wvga");
-	if (ret == -ENODEV)
+#ifdef CONFIG_FB_MSM_LCDC_AUTO_DETECT
+	if (msm_fb_detect_client(LCDC_AUO_PANEL_NAME)) {
+		pr_err("%s: detect failed\n", __func__);
 		return 0;
-
-	if (ret && (mddi_get_client_id() != 0))
-		return 0;
+	}
 #endif
-	pinfo.xres = 480;
-	pinfo.yres = 800;
-	pinfo.type = LCDC_PANEL;
-	pinfo.pdest = DISPLAY_1;
-	pinfo.wait_cycle = 0;
-	pinfo.bpp = 16;
-	pinfo.fb_num = 2;
-	pinfo.clk_rate = 24576000; /* 24.576MHz to match the SPEC. from AMSS */
-	//pinfo.width = 46; /* physical width in mm */
-	//pinfo.height = 77; /* physical height in mm */
 
-	pinfo.lcdc.h_back_porch = 12;
-	pinfo.lcdc.h_front_porch = 16;
-	pinfo.lcdc.h_pulse_width = 40;
-	pinfo.lcdc.v_back_porch = 4;
-	pinfo.lcdc.v_front_porch = 3;
-	pinfo.lcdc.v_pulse_width = 40;
-	pinfo.lcdc.border_clr = 0;	/* blk */
-	pinfo.lcdc.underflow_clr = 0xff;	/* blue */
-	pinfo.lcdc.hsync_skew = 0;
-	
-	ret = lcdc_device_register(&pinfo);
-	if (ret)
-		printk(KERN_ERR "%s: failed to register device!\n", __func__);
+	ret = platform_driver_register(&this_driver);
+	if (ret) {
+		pr_err("%s: driver register failed, rc=%d\n", __func__, ret);
+		return ret;
+	}
 
-	auo_gpio_init();
+	pinfo = &lcdc_auo_panel_data.panel_info;
+	pinfo->xres = 480;
+	pinfo->yres = 800;
+	pinfo->type = LCDC_PANEL;
+	pinfo->pdest = DISPLAY_1;
+	pinfo->wait_cycle = 0;
+	pinfo->bpp = 16;
+	pinfo->fb_num = 2;
+	pinfo->clk_rate = 24576000;
+	//pinfo->bl_max = MAX_BACKLIGHT_LEVEL;
+	//pinfo->bl_min = 1;
 
+	pinfo->lcdc.h_back_porch = 21;
+	pinfo->lcdc.h_front_porch = 81;
+	pinfo->lcdc.h_pulse_width = 60;
+	pinfo->lcdc.v_back_porch = 18;
+	pinfo->lcdc.v_front_porch = 27;
+	pinfo->lcdc.v_pulse_width = 60;
+	pinfo->lcdc.border_clr = 0;	/* blk */
+	pinfo->lcdc.underflow_clr = 0xff;	/* blue */
+	pinfo->lcdc.hsync_skew = 0;
+
+	pinfo->lcdc.border_clr = 0;
+	pinfo->lcdc.underflow_clr = 0xff;
+	pinfo->lcdc.hsync_skew = 0;
+
+	ret = platform_device_register(&this_device);
+	if (ret) {
+		pr_err("%s: device register failed, rc=%d\n", __func__, ret);
+	}
 	return ret;
 }
 
