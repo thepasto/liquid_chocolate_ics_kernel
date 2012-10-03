@@ -2431,6 +2431,37 @@ struct tty_driver *console_driver;
 
 #ifdef CONFIG_VT_CONSOLE
 
+/**
+ * vt_kmsg_redirect() - Sets/gets the kernel message console
+ * @new:	The new virtual terminal number or -1 if the console should stay
+ * 		unchanged
+ *
+ * By default, the kernel messages are always printed on the current virtual
+ * console. However, the user may modify that default with the
+ * TIOCL_SETKMSGREDIRECT ioctl call.
+ *
+ * This function sets the kernel message console to be @new. It returns the old
+ * virtual console number. The virtual terminal number 0 (both as parameter and
+ * return value) means no redirection (i.e. always printed on the currently
+ * active console).
+ *
+ * The parameter -1 means that only the current console is returned, but the
+ * value is not modified. You may use the macro vt_get_kmsg_redirect() in that
+ * case to make the code more understandable.
+ *
+ * When the kernel is compiled without CONFIG_VT_CONSOLE, this function ignores
+ * the parameter and always returns 0.
+ */
+int vt_kmsg_redirect(int new)
+{
+	static int kmsg_con;
+
+	if (new != -1)
+		return xchg(&kmsg_con, new);
+	else
+		return kmsg_con;
+}
+
 /*
  *	Console on virtual terminal
  *

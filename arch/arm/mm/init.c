@@ -15,6 +15,7 @@
 #include <linux/mman.h>
 #include <linux/nodemask.h>
 #include <linux/initrd.h>
+#include <linux/highmem.h>
 #ifdef CONFIG_MEMORY_HOTPLUG
 #include <linux/memory_hotplug.h>
 #endif
@@ -558,7 +559,7 @@ void __init mem_init(void)
 	int i, node;
 
 #ifndef CONFIG_DISCONTIGMEM
-	max_mapnr   = virt_to_page(high_memory) - mem_map;
+	max_mapnr   = pfn_to_page(max_pfn + PHYS_PFN_OFFSET) - mem_map;
 #endif
 
 	/* this will put all unused low memory onto the freelists */
@@ -602,6 +603,19 @@ void __init mem_init(void)
 #undef MLM
 #undef MLK_ROUNDUP
 
+#ifdef CONFIG_HIGHMEM
+	/* set highmem page free */
+	for_each_online_node(node) {
+		for_each_nodebank (i, &meminfo, node) {
+			unsigned long start = bank_pfn_start(&meminfo.bank[i]);
+			unsigned long end = bank_pfn_end(&meminfo.bank[i]);
+			if (start >= max_low_pfn + PHYS_PFN_OFFSET)
+				totalhigh_pages += free_area(start, end, NULL);
+		}
+	}
+	totalram_pages += totalhigh_pages;
+#endif
+
 	/*
 	 * Since our memory may not be contiguous, calculate the
 	 * real number of pages we have in this system
@@ -619,9 +633,10 @@ void __init mem_init(void)
 	initsize = __init_end - __init_begin;
 
 	printk(KERN_NOTICE "Memory: %luKB available (%dK code, "
-		"%dK data, %dK init)\n",
+		"%dK data, %dK init, %luK highmem)\n",
 		(unsigned long) nr_free_pages() << (PAGE_SHIFT-10),
-		codesize >> 10, datasize >> 10, initsize >> 10);
+		codesize >> 10, datasize >> 10, initsize >> 10,
+		(unsigned long) (totalhigh_pages << (PAGE_SHIFT-10)));
 
 	if (PAGE_SIZE >= 16384 && num_physpages <= 128) {
 		extern int sysctl_overcommit_memory;

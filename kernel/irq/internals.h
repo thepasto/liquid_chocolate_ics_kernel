@@ -9,6 +9,8 @@ extern void irq_chip_set_defaults(struct irq_chip *chip);
 
 /* Set default handler: */
 extern void compat_irq_chip_set_default_handler(struct irq_desc *desc);
+extern void __disable_irq(struct irq_desc *desc, unsigned int irq, bool susp);
+extern void __enable_irq(struct irq_desc *desc, unsigned int irq, bool resume);
 
 extern int __irq_set_trigger(struct irq_desc *desc, unsigned int irq,
 		unsigned long flags);
@@ -31,6 +33,20 @@ static inline void unregister_handler_proc(unsigned int irq,
 #endif
 
 extern int irq_select_affinity_usr(unsigned int irq);
+
+
+/* Inline functions for support of irq chips on slow busses */
+static inline void chip_bus_lock(unsigned int irq, struct irq_desc *desc)
+{
+	if (unlikely(desc->chip->bus_lock))
+		desc->chip->bus_lock(irq);
+}
+
+static inline void chip_bus_sync_unlock(unsigned int irq, struct irq_desc *desc)
+{
+	if (unlikely(desc->chip->bus_sync_unlock))
+		desc->chip->bus_sync_unlock(irq);
+}
 
 /*
  * Debugging printout:

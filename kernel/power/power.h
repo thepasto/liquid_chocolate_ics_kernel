@@ -45,7 +45,7 @@ static inline char *check_image_kernel(struct swsusp_info *info)
  */
 #define SPARE_PAGES	((1024 * 1024) >> PAGE_SHIFT)
 
-/* kernel/power/disk.c */
+/* kernel/power/hibernate.c */
 extern int hibernation_snapshot(int platform_mode);
 extern int hibernation_restore(int platform_mode);
 extern int hibernation_platform_enter(void);
@@ -63,16 +63,6 @@ static struct kobj_attribute _name##_attr = {	\
 	.store	= _name##_store,		\
 }
 
-#define power_attr_root(_name) \
-static struct kobj_attribute _name##_attr = {	\
-	.attr	= {				\
-		.name = __stringify(_name),	\
-		.mode = 0666,			\
-	},					\
-	.show	= _name##_show,			\
-	.store	= _name##_store,		\
-}
-
 /* Preferred image size in bytes (default 500 MB) */
 extern unsigned long image_size;
 extern int in_suspend;
@@ -84,7 +74,7 @@ extern asmlinkage int swsusp_arch_resume(void);
 
 extern int create_basic_memory_bitmaps(void);
 extern void free_basic_memory_bitmaps(void);
-extern unsigned int count_data_pages(void);
+extern int hibernate_preallocate_memory(void);
 
 /**
  *	Auxiliary structure used for reading the snapshot image data and
@@ -107,23 +97,11 @@ extern unsigned int count_data_pages(void);
  */
 
 struct snapshot_handle {
-	loff_t		offset;	/* number of the last byte ready for reading
-				 * or writing in the sequence
-				 */
 	unsigned int	cur;	/* number of the block of PAGE_SIZE bytes the
 				 * next operation will refer to (ie. current)
 				 */
-	unsigned int	cur_offset;	/* offset with respect to the current
-					 * block (for the next operation)
-					 */
-	unsigned int	prev;	/* number of the block of PAGE_SIZE bytes that
-				 * was the current one previously
-				 */
 	void		*buffer;	/* address of the block to read from
 					 * or write to
-					 */
-	unsigned int	buf_offset;	/* location to read from or write to,
-					 * given as a displacement from 'buffer'
 					 */
 	int		sync_read;	/* Set to one to notify the caller of
 					 * snapshot_write_next() that it may
@@ -135,12 +113,12 @@ struct snapshot_handle {
  * snapshot_read_next()/snapshot_write_next() is allowed to
  * read/write data after the function returns
  */
-#define data_of(handle)	((handle).buffer + (handle).buf_offset)
+#define data_of(handle)	((handle).buffer)
 
 extern unsigned int snapshot_additional_pages(struct zone *zone);
 extern unsigned long snapshot_get_image_size(void);
-extern int snapshot_read_next(struct snapshot_handle *handle, size_t count);
-extern int snapshot_write_next(struct snapshot_handle *handle, size_t count);
+extern int snapshot_read_next(struct snapshot_handle *handle);
+extern int snapshot_write_next(struct snapshot_handle *handle);
 extern void snapshot_write_finalize(struct snapshot_handle *handle);
 extern int snapshot_image_loaded(struct snapshot_handle *handle);
 
@@ -157,13 +135,21 @@ extern int swsusp_swap_in_use(void);
  */
 #define SF_PLATFORM_MODE	1
 
-/* kernel/power/disk.c */
+/* kernel/power/hibernate.c */
 extern int swsusp_check(void);
-extern int swsusp_shrink_memory(void);
 extern void swsusp_free(void);
 extern int swsusp_read(unsigned int *flags_p);
 extern int swsusp_write(unsigned int flags);
 extern void swsusp_close(fmode_t);
+
+/* kernel/power/block_io.c */
+extern struct block_device *hib_resume_bdev;
+
+extern int hib_bio_read_page(pgoff_t page_off, void *addr,
+		struct bio **bio_chain);
+extern int hib_bio_write_page(pgoff_t page_off, void *addr,
+		struct bio **bio_chain);
+extern int hib_wait_on_bio_chain(struct bio **bio_chain);
 
 struct timeval;
 /* kernel/power/swsusp.c */
@@ -171,14 +157,29 @@ extern void swsusp_show_speed(struct timeval *, struct timeval *,
 				unsigned int, char *);
 
 #ifdef CONFIG_SUSPEND
-/* kernel/power/main.c */
+/* kernel/power/suspend.c */
+extern const char *const pm_states[];
+
+extern bool valid_state(suspend_state_t state);
 extern int suspend_devices_and_enter(suspend_state_t state);
+extern int enter_state(suspend_state_t state);
 #else /* !CONFIG_SUSPEND */
 static inline int suspend_devices_and_enter(suspend_state_t state)
 {
 	return -ENOSYS;
 }
+static inline int enter_state(suspend_state_t state) { return -ENOSYS; }
+static inline bool valid_state(suspend_state_t state) { return false; }
 #endif /* !CONFIG_SUSPEND */
+
+#ifdef CONFIG_PM_TEST_SUSPEND
+/* kernel/power/suspend_test.c */
+extern void suspend_test_start(void);
+extern void suspend_test_finish(const char *label);
+#else /* !CONFIG_PM_TEST_SUSPEND */
+static inline void suspend_test_start(void) {}
+static inline void suspend_test_finish(const char *label) {}
+#endif /* !CONFIG_PM_TEST_SUSPEND */
 
 #ifdef CONFIG_PM_SLEEP
 /* kernel/power/main.c */
@@ -186,7 +187,6 @@ extern int pm_notifier_call_chain(unsigned long val);
 #endif
 
 #ifdef CONFIG_HIGHMEM
-unsigned int count_highmem_pages(void);
 int restore_highmem(void);
 #else
 static inline unsigned int count_highmem_pages(void) { return 0; }
@@ -239,6 +239,11 @@ static inline void suspend_thaw_processes(void)
 extern struct workqueue_struct *suspend_work_queue;
 extern struct wake_lock main_wake_lock;
 extern suspend_state_t requested_suspend_state;
+extern void suspend_sys_sync_queue(void);
+extern int suspend_sys_sync_wait(void);
+#else
+static inline void suspend_sys_sync_queue(void) {}
+static inline int suspend_sys_sync_wait(void) { return 0; }
 #endif
 
 #ifdef CONFIG_USER_WAKELOCK

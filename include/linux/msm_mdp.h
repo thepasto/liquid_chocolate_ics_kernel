@@ -139,6 +139,7 @@ enum {
 #define MDP_DEINTERLACE_ODD		0x00400000
 #define MDP_OV_PLAY_NOWAIT		0x00200000
 #define MDP_SOURCE_ROTATED_90		0x00100000
+#define MDP_BACKEND_COMPOSITION		0x00040000
 #define MDP_DPP_HSIC			0x00080000
 #define MDP_BORDERFILL_SUPPORTED	0x00010000
 #define MDP_SECURE_OVERLAY_SESSION      0x00008000
@@ -170,6 +171,7 @@ struct mdp_img {
 	uint32_t format;
 	uint32_t offset;
 	int memory_id;		/* the file descriptor */
+	uint32_t priv;
 };
 
 /*

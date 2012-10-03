@@ -17,10 +17,8 @@
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/rtc.h>
-#include <linux/syscalls.h> /* sys_sync */
 #include <linux/wakelock.h>
 #include <linux/workqueue.h>
-#include <linux/delay.h>
 
 #include "power.h"
 
@@ -28,17 +26,13 @@ enum {
 	DEBUG_USER_STATE = 1U << 0,
 	DEBUG_SUSPEND = 1U << 2,
 };
-#ifdef CONFIG_MACH_ACER_A1
-static int debug_mask = DEBUG_USER_STATE | DEBUG_SUSPEND;
-#else
 static int debug_mask = DEBUG_USER_STATE;
-#endif
 module_param_named(debug_mask, debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP);
 
 static DEFINE_MUTEX(early_suspend_lock);
 static LIST_HEAD(early_suspend_handlers);
 static void early_suspend(struct work_struct *work);
-void late_resume(struct work_struct *work);
+static void late_resume(struct work_struct *work);
 static DECLARE_WORK(early_suspend_work, early_suspend);
 static DECLARE_WORK(late_resume_work, late_resume);
 static DEFINE_SPINLOCK(state_lock);
@@ -48,35 +42,6 @@ enum {
 	SUSPEND_REQUESTED_AND_SUSPENDED = SUSPEND_REQUESTED | SUSPENDED,
 };
 static int state;
-
-// create a work queue to monitor the "suspend" thread while DUT enter suspend
-#ifdef CONFIG_MACH_ACER_A1
-static int early_suspend_is_working = 0;
-
-struct task_struct *suspend_thread_task = NULL;
-EXPORT_SYMBOL(suspend_thread_task);
-
-static void monitor_suspend_work_queue(struct work_struct *work);
-static DECLARE_WORK(Monitor_Work_Queue, monitor_suspend_work_queue);
-struct workqueue_struct *suspend_work_queue_monitored = NULL;
-
-int is_suspend_mode(void)
-{
-	return !!(state & SUSPENDED);
-}
-EXPORT_SYMBOL(is_suspend_mode);
-
-static void monitor_suspend_work_queue(struct work_struct *work)
-{
-	while (early_suspend_is_working) {
-		msleep(5000);
-		if (suspend_thread_task && !has_wake_lock(WAKE_LOCK_SUSPEND)) {
-			pr_info("Suspend Thread is blocked.\r\n");
-			sched_show_task(suspend_thread_task);
-		}
-	}
-}
-#endif  // CONFIG_MACH_ACER_A1
 
 void register_early_suspend(struct early_suspend *handler)
 {
@@ -127,26 +92,13 @@ static void early_suspend(struct work_struct *work)
 
 	if (debug_mask & DEBUG_SUSPEND)
 		pr_info("early_suspend: call handlers\n");
-#ifdef CONFIG_MACH_ACER_A1
-	list_for_each_entry(pos, &early_suspend_handlers, link) {
-		if (pos->suspend != NULL) {
-			if (debug_mask & DEBUG_SUSPEND)
-				pr_info("[SUSPEND_DEBUG] early suspend ... [0x%8x]\r\n", (unsigned int) pos->suspend);
-			pos->suspend(pos);
-		}
-	}
-#else  // CONFIG_MACH_ACER_A1
 	list_for_each_entry(pos, &early_suspend_handlers, link) {
 		if (pos->suspend != NULL)
 			pos->suspend(pos);
 	}
-#endif  // CONFIG_MACH_ACER_A1
 	mutex_unlock(&early_suspend_lock);
 
-	if (debug_mask & DEBUG_SUSPEND)
-		pr_info("early_suspend: sync\n");
-
-	sys_sync();
+	suspend_sys_sync_queue();
 abort:
 	spin_lock_irqsave(&state_lock, irqflags);
 	if (state == SUSPEND_REQUESTED_AND_SUSPENDED)
@@ -154,7 +106,7 @@ abort:
 	spin_unlock_irqrestore(&state_lock, irqflags);
 }
 
-void late_resume(struct work_struct *work)
+static void late_resume(struct work_struct *work)
 {
 	struct early_suspend *pos;
 	unsigned long irqflags;
@@ -175,25 +127,11 @@ void late_resume(struct work_struct *work)
 	}
 	if (debug_mask & DEBUG_SUSPEND)
 		pr_info("late_resume: call handlers\n");
-#ifdef CONFIG_MACH_ACER_A1
-	list_for_each_entry_reverse(pos, &early_suspend_handlers, link) {
-		if (pos->resume != NULL) {
-			if (debug_mask & DEBUG_SUSPEND)
-				pr_info("[SUSPEND_DEBUG] late resume ... [0x%8x]\r\n", (unsigned int) pos->resume);
-			pos->resume(pos);
-		}
-	}
-#else  // CONFIG_MACH_ACER_A1
 	list_for_each_entry_reverse(pos, &early_suspend_handlers, link)
 		if (pos->resume != NULL)
 			pos->resume(pos);
-#endif  // CONFIG_MACH_ACER_A1
 	if (debug_mask & DEBUG_SUSPEND)
 		pr_info("late_resume: done\n");
-
-#ifdef CONFIG_MACH_ACER_A1
-	early_suspend_is_working = 0;
-#endif
 abort:
 	mutex_unlock(&early_suspend_lock);
 }
@@ -203,11 +141,6 @@ void request_suspend_state(suspend_state_t new_state)
 	unsigned long irqflags;
 	int old_sleep;
 
-#ifdef CONFIG_MACH_ACER_A1
-	if (suspend_work_queue_monitored == NULL)
-		suspend_work_queue_monitored = create_singlethread_workqueue("monitor_suspend");
-#endif
-
 	spin_lock_irqsave(&state_lock, irqflags);
 	old_sleep = state & SUSPEND_REQUESTED;
 	if (debug_mask & DEBUG_USER_STATE) {
@@ -215,15 +148,6 @@ void request_suspend_state(suspend_state_t new_state)
 		struct rtc_time tm;
 		getnstimeofday(&ts);
 		rtc_time_to_tm(ts.tv_sec, &tm);
-#ifdef CONFIG_MACH_ACER_A1
-		pr_info("request_suspend_state: %s (%d->%d) at %lld "
-			"(%d-%02d-%02d %02d:%02d:%02d.%09lu UTC) pid=%d\n",
-			new_state != PM_SUSPEND_ON ? "sleep" : "wakeup",
-			requested_suspend_state, new_state,
-			ktime_to_ns(ktime_get()),
-			tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
-			tm.tm_hour, tm.tm_min, tm.tm_sec, ts.tv_nsec, current->pid);
-#else
 		pr_info("request_suspend_state: %s (%d->%d) at %lld "
 			"(%d-%02d-%02d %02d:%02d:%02d.%09lu UTC)\n",
 			new_state != PM_SUSPEND_ON ? "sleep" : "wakeup",
@@ -231,14 +155,9 @@ void request_suspend_state(suspend_state_t new_state)
 			ktime_to_ns(ktime_get()),
 			tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
 			tm.tm_hour, tm.tm_min, tm.tm_sec, ts.tv_nsec);
-#endif
 	}
 	if (!old_sleep && new_state != PM_SUSPEND_ON) {
 		state |= SUSPEND_REQUESTED;
-#ifdef CONFIG_MACH_ACER_A1
-		early_suspend_is_working = 1;
-		queue_work(suspend_work_queue_monitored, &Monitor_Work_Queue);
-#endif
 		queue_work(suspend_work_queue, &early_suspend_work);
 	} else if (old_sleep && new_state == PM_SUSPEND_ON) {
 		state &= ~SUSPEND_REQUESTED;

@@ -1,57 +1,18 @@
 /* Copyright (c) 2009-2010, Code Aurora Forum. All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimer in the
- *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of Code Aurora Forum nor
- *       the names of its contributors may be used to endorse or promote
- *       products derived from this software without specific prior written
- *       permission.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
  *
- * Alternatively, provided that this notice is retained in full, this software
- * may be relicensed by the recipient under the terms of the GNU General Public
- * License version 2 ("GPL") and only version 2, in which case the provisions of
- * the GPL apply INSTEAD OF those given above.  If the recipient relicenses the
- * software under the GPL, then the identification text in the MODULE_LICENSE
- * macro must be changed to reflect "GPLv2" instead of "Dual BSD/GPL".  Once a
- * recipient changes the license terms to the GPL, subsequent recipients shall
- * not relicense under alternate licensing terms, including the BSD or dual
- * BSD/GPL terms.  In addition, the following license statement immediately
- * below and between the words START and END shall also then apply when this
- * software is relicensed under the GPL:
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
- * START
- *
- * This program is free software; you can redistribute it and/or modify it under
- * the terms of the GNU General Public License version 2 and only version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
- * details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * END
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
+ * 02110-1301, USA.
  *
  */
 
@@ -81,6 +42,59 @@ static struct mdp4_overlay_pipe *mddi_pipe;
 static struct mdp4_overlay_pipe *pending_pipe;
 static struct msm_fb_data_type *mddi_mfd;
 
+static int vsync_start_y_adjust = 4;
+
+static struct completion mddi_comp;
+
+#ifdef MDP4_MDDI_DMA_SWITCH
+static int dmap_vsync_enable;
+
+void mdp_dmap_vsync_set(int enable)
+{
+	dmap_vsync_enable = enable;
+}
+
+int mdp_dmap_vsync_get(void)
+{
+	return dmap_vsync_enable;
+}
+#endif
+
+void mdp4_mddi_vsync_enable(struct msm_fb_data_type *mfd,
+		struct mdp4_overlay_pipe *pipe, int which)
+{
+	uint32 start_y, data, tear_en;
+
+	tear_en = (1 << which);
+
+	if ((mfd->use_mdp_vsync) && (mfd->ibuf.vsync_enable) &&
+		(mfd->panel_info.lcd.vsync_enable)) {
+
+#ifdef MDP4_MDDI_DMA_SWITCH
+		if (which == 0 && dmap_vsync_enable == 0 &&
+			mfd->panel_info.lcd.rev < 2) /* dma_p */
+			return;
+#endif
+		if (vsync_start_y_adjust <= pipe->dst_y)
+			start_y = pipe->dst_y - vsync_start_y_adjust;
+		else
+			start_y = (mfd->total_lcd_lines - 1) -
+				(vsync_start_y_adjust - pipe->dst_y);
+		if (which == 0)
+			MDP_OUTP(MDP_BASE + 0x210, start_y);	/* primary */
+		else
+			MDP_OUTP(MDP_BASE + 0x214, start_y);	/* secondary */
+
+		data = inpdw(MDP_BASE + 0x20c);
+		data |= tear_en;
+		MDP_OUTP(MDP_BASE + 0x20c, data);
+	} else {
+		data = inpdw(MDP_BASE + 0x20c);
+		data &= ~tear_en;
+		MDP_OUTP(MDP_BASE + 0x20c, data);
+	}
+}
+
 #define WHOLESCREEN
 
 void mdp4_overlay_update_lcd(struct msm_fb_data_type *mfd)
@@ -91,6 +105,7 @@ void mdp4_overlay_update_lcd(struct msm_fb_data_type *mfd)
 	uint32 mddi_ld_param;
 	uint16 mddi_vdo_packet_reg;
 	struct mdp4_overlay_pipe *pipe;
+	int ret;
 
 	if (mfd->key != MFD_KEY)
 		return;
@@ -102,12 +117,23 @@ void mdp4_overlay_update_lcd(struct msm_fb_data_type *mfd)
 
 	if (mddi_pipe == NULL) {
 		ptype = mdp4_overlay_format2type(mfd->fb_imgType);
-		pipe = mdp4_overlay_pipe_alloc(ptype);
+		if (ptype < 0)
+			printk(KERN_INFO "%s: format2type failed\n", __func__);
+		pipe = mdp4_overlay_pipe_alloc(ptype, FALSE);
+		if (pipe == NULL)
+			printk(KERN_INFO "%s: pipe_alloc failed\n", __func__);
+		pipe->pipe_used++;
 		pipe->mixer_num  = MDP4_MIXER0;
 		pipe->src_format = mfd->fb_imgType;
-		mdp4_overlay_format2pipe(pipe);
+		mdp4_overlay_panel_mode(pipe->mixer_num, MDP4_PANEL_MDDI);
+		ret = mdp4_overlay_format2pipe(pipe);
+		if (ret < 0)
+			printk(KERN_INFO "%s: format2type failed\n", __func__);
 
 		mddi_pipe = pipe; /* keep it */
+
+		init_completion(&mddi_comp);
+		mddi_pipe->blt_end = 1;	/* mark as end */
 
 		mddi_ld_param = 0;
 		mddi_vdo_packet_reg = mfd->panel_info.mddi.vdopkt;
@@ -122,12 +148,24 @@ void mdp4_overlay_update_lcd(struct msm_fb_data_type *mfd)
 		}
 
 		MDP_OUTP(MDP_BASE + 0x00090, mddi_ld_param);
-		MDP_OUTP(MDP_BASE + 0x00094,
+
+		if (mfd->panel_info.bpp == 24)
+			MDP_OUTP(MDP_BASE + 0x00094,
+			 (MDDI_VDO_PACKET_DESC_24 << 16) | mddi_vdo_packet_reg);
+		else if (mfd->panel_info.bpp == 16)
+			MDP_OUTP(MDP_BASE + 0x00094,
+			 (MDDI_VDO_PACKET_DESC_16 << 16) | mddi_vdo_packet_reg);
+		else
+			MDP_OUTP(MDP_BASE + 0x00094,
 			 (MDDI_VDO_PACKET_DESC << 16) | mddi_vdo_packet_reg);
+
 		MDP_OUTP(MDP_BASE + 0x00098, 0x01);
 	} else {
 		pipe = mddi_pipe;
 	}
+
+	/* 0 for dma_p, client_id = 0 */
+	MDP_OUTP(MDP_BASE + 0x00090, 0);
 
 
 	src = (uint8 *) iBuf->buf;
@@ -201,9 +239,90 @@ void mdp4_overlay_update_lcd(struct msm_fb_data_type *mfd)
 
 	mdp4_overlay_dmap_cfg(mfd, 0);
 
+	mdp4_mddi_vsync_enable(mfd, pipe, 0);
+
 	/* MDP cmd block disable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 
+}
+
+int mdp4_mddi_overlay_blt_offset(int *off)
+{
+#ifdef MDP4_MDDI_DMA_SWITCH
+	if (mddi_pipe->blt_end ||
+		(mdp4_overlay_pipe_staged(mddi_pipe->mixer_num) <= 1)) {
+#else
+	if (mddi_pipe->blt_end) {
+#endif
+		*off = -1;
+		return -EINVAL;
+	}
+
+	if (mddi_pipe->blt_cnt & 0x01)
+		*off = mddi_pipe->src_height * mddi_pipe->src_width * 3;
+	else
+		*off = 0;
+
+	return 0;
+}
+
+void mdp4_mddi_overlay_blt(ulong addr)
+{
+	unsigned long flag;
+
+	spin_lock_irqsave(&mdp_spin_lock, flag);
+	if (addr) {
+		mdp_pipe_ctrl(MDP_DMA2_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+		mdp_intr_mask |= INTR_DMA_P_DONE;
+		outp32(MDP_INTR_ENABLE, mdp_intr_mask);
+		mdp_pipe_ctrl(MDP_DMA2_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+		mddi_pipe->blt_cnt = 0;
+		mddi_pipe->blt_end = 0;
+		mddi_pipe->blt_addr = addr;
+	} else {
+		mddi_pipe->blt_end = 1;	/* mark as end */
+	}
+	spin_unlock_irqrestore(&mdp_spin_lock, flag);
+}
+
+void mdp4_blt_xy_update(struct mdp4_overlay_pipe *pipe)
+{
+	uint32 off, addr;
+	char *overlay_base;
+
+
+	if (pipe->blt_addr == 0)
+		return;
+
+	/* overlay ouput is RGB888 */
+	off = 0;
+	if (pipe->blt_cnt & 0x01)
+		off = pipe->src_height * pipe->src_width * 3;
+
+	addr = pipe->blt_addr + off;
+
+	/* dmap */
+	MDP_OUTP(MDP_BASE + 0x90008, addr);
+
+	/* overlay 0 */
+	overlay_base = MDP_BASE + MDP4_OVERLAYPROC0_BASE;/* 0x10000 */
+	outpdw(overlay_base + 0x000c, addr);
+	outpdw(overlay_base + 0x001c, addr);
+}
+
+/*
+ * mdp4_dmap_done_mddi: called from isr
+ */
+void mdp4_dma_p_done_mddi(void)
+{
+	if (mddi_pipe->blt_end) {
+		mddi_pipe->blt_addr = 0;
+		mdp_intr_mask &= ~INTR_DMA_P_DONE;
+		outp32(MDP_INTR_ENABLE, mdp_intr_mask);
+		mdp4_overlayproc_cfg(mddi_pipe);
+		mdp4_overlay_dmap_xy(mddi_pipe);
+		return;
+	}
 }
 
 /*
@@ -211,31 +330,111 @@ void mdp4_overlay_update_lcd(struct msm_fb_data_type *mfd)
  */
 void mdp4_overlay0_done_mddi()
 {
+	if (mddi_pipe->blt_addr) {
+		if (mddi_pipe->blt_cnt == 0) {
+			mdp4_overlayproc_cfg(mddi_pipe);
+			mdp4_overlay_dmap_xy(mddi_pipe);
+			/* BLT start from next frame */
+		} else {
+			mdp_pipe_ctrl(MDP_DMA2_BLOCK, MDP_BLOCK_POWER_ON,
+						FALSE);
+			mdp4_blt_xy_update(mddi_pipe);
+			outpdw(MDP_BASE + 0x000c, 0x0); /* start DMAP */
+		}
+		mddi_pipe->blt_cnt++;
+	}
+
+#ifdef MDP4_NONBLOCKING
+	mdp_disable_irq_nosync(MDP_OVERLAY0_TERM);
+
+	complete_all(&mddi_comp);
+#else
 	if (pending_pipe)
 		complete(&pending_pipe->comp);
+#endif
 }
 
 void mdp4_mddi_overlay_restore(void)
 {
+	if (mddi_mfd == NULL)
+		return;
+
+#ifdef MDP4_NONBLOCKING
+	if (mddi_mfd->panel_power_on == 0)
+		return;
+#else
+	if (mddi_mfd->dma->busy || mddi_mfd->panel_power_on == 0)
+		return;
+#endif
+
+#ifdef MDP4_MDDI_DMA_SWITCH
+	mdp4_mddi_overlay_dmas_restore();
+#else
 	/* mutex holded by caller */
 	if (mddi_mfd && mddi_pipe) {
 		mdp4_overlay_update_lcd(mddi_mfd);
 		mdp4_mddi_overlay_kickoff(mddi_mfd, mddi_pipe);
 	}
+#endif
 }
+static ulong mddi_last_kick;
+static ulong mddi_kick_interval;
 
 void mdp4_mddi_overlay_kickoff(struct msm_fb_data_type *mfd,
 				struct mdp4_overlay_pipe *pipe)
 {
-	if (pipe == mddi_pipe)  /* base layer */
-		if (mdp4_overlay_pipe_staged(pipe->mixer_num) > 1)
-			return;	/* let other pipe to kickoff */
+#ifdef MDP4_NONBLOCKING
+	unsigned long flag;
 
+
+	if (pipe == mddi_pipe) {	/* base layer */
+		if (mdp4_overlay_pipe_staged(pipe->mixer_num) > 1) {
+			if (time_before(jiffies,
+				(mddi_last_kick + mddi_kick_interval/2))) {
+				mdp4_stat.kickoff_mddi_skip++;
+				return; /* let other pipe to kickoff */
+			}
+		}
+	}
+
+	spin_lock_irqsave(&mdp_spin_lock, flag);
+	if (mfd->dma->busy == TRUE) {
+		INIT_COMPLETION(mddi_comp);
+		pending_pipe = pipe;
+	}
+	spin_unlock_irqrestore(&mdp_spin_lock, flag);
+
+	if (pending_pipe != NULL) {
+		/* wait until DMA finishes the current job */
+		wait_for_completion_killable(&mddi_comp);
+		pending_pipe = NULL;
+	}
+
+	down(&mfd->sem);
+	mdp_enable_irq(MDP_OVERLAY0_TERM);
+	mfd->dma->busy = TRUE;
+	/* start OVERLAY pipe */
+	mdp_pipe_kickoff(MDP_OVERLAY0_TERM, mfd);
+	if (pipe != mddi_pipe) { /* non base layer */
+		int intv;
+
+		if (mddi_last_kick == 0)
+			intv = 0;
+		else
+			intv = jiffies - mddi_last_kick;
+
+		mddi_kick_interval += intv;
+		mddi_kick_interval /= 2;        /* average */
+		mddi_last_kick = jiffies;
+	}
+	up(&mfd->sem);
+#else
 	down(&mfd->sem);
 	mdp_enable_irq(MDP_OVERLAY0_TERM);
 	mfd->dma->busy = TRUE;
 	INIT_COMPLETION(pipe->comp);
 	pending_pipe = pipe;
+
 	/* start OVERLAY pipe */
 	mdp_pipe_kickoff(MDP_OVERLAY0_TERM, mfd);
 	up(&mfd->sem);
@@ -243,17 +442,154 @@ void mdp4_mddi_overlay_kickoff(struct msm_fb_data_type *mfd,
 	/* wait until DMA finishes the current job */
 	wait_for_completion_killable(&pipe->comp);
 	mdp_disable_irq(MDP_OVERLAY0_TERM);
-
+#endif
 }
+
+
+#ifdef MDP4_MDDI_DMA_SWITCH
+
+void mdp4_dma_s_done_mddi()
+{
+	if (pending_pipe)
+		complete(&pending_pipe->dmas_comp);
+}
+void mdp4_dma_s_update_lcd(struct msm_fb_data_type *mfd,
+				struct mdp4_overlay_pipe *pipe)
+{
+	MDPIBUF *iBuf = &mfd->ibuf;
+	uint32 outBpp = iBuf->bpp;
+	uint16 mddi_vdo_packet_reg;
+	uint32 dma_s_cfg_reg;
+
+	dma_s_cfg_reg = 0;
+
+	if (mfd->fb_imgType == MDP_RGBA_8888)
+		dma_s_cfg_reg |= DMA_PACK_PATTERN_BGR; /* on purpose */
+	else if (mfd->fb_imgType == MDP_BGR_565)
+		dma_s_cfg_reg |= DMA_PACK_PATTERN_BGR;
+	else
+		dma_s_cfg_reg |= DMA_PACK_PATTERN_RGB;
+
+	if (outBpp == 4)
+		dma_s_cfg_reg |= (1 << 26); /* xRGB8888 */
+	else if (outBpp == 2)
+		dma_s_cfg_reg |= DMA_IBUF_FORMAT_RGB565;
+
+	dma_s_cfg_reg |= DMA_DITHER_EN;
+
+	/* MDP cmd block enable */
+	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+	/* PIXELSIZE */
+	MDP_OUTP(MDP_BASE + 0xa0004, (pipe->dst_h << 16 | pipe->dst_w));
+	MDP_OUTP(MDP_BASE + 0xa0008, pipe->srcp0_addr);	/* ibuf address */
+	MDP_OUTP(MDP_BASE + 0xa000c, pipe->srcp0_ystride);/* ystride */
+
+	if (mfd->panel_info.bpp == 24) {
+		dma_s_cfg_reg |= DMA_DSTC0G_8BITS |	/* 666 18BPP */
+		    DMA_DSTC1B_8BITS | DMA_DSTC2R_8BITS;
+	} else if (mfd->panel_info.bpp == 18) {
+		dma_s_cfg_reg |= DMA_DSTC0G_6BITS |	/* 666 18BPP */
+		    DMA_DSTC1B_6BITS | DMA_DSTC2R_6BITS;
+	} else {
+		dma_s_cfg_reg |= DMA_DSTC0G_6BITS |	/* 565 16BPP */
+		    DMA_DSTC1B_5BITS | DMA_DSTC2R_5BITS;
+	}
+
+	MDP_OUTP(MDP_BASE + 0xa0010, (pipe->dst_y << 16) | pipe->dst_x);
+
+	/* 1 for dma_s, client_id = 0 */
+	MDP_OUTP(MDP_BASE + 0x00090, 1);
+
+	mddi_vdo_packet_reg = mfd->panel_info.mddi.vdopkt;
+
+	if (mfd->panel_info.bpp == 24)
+		MDP_OUTP(MDP_BASE + 0x00094,
+			(MDDI_VDO_PACKET_DESC_24 << 16) | mddi_vdo_packet_reg);
+	else if (mfd->panel_info.bpp == 16)
+		MDP_OUTP(MDP_BASE + 0x00094,
+			 (MDDI_VDO_PACKET_DESC_16 << 16) | mddi_vdo_packet_reg);
+	else
+		MDP_OUTP(MDP_BASE + 0x00094,
+			 (MDDI_VDO_PACKET_DESC << 16) | mddi_vdo_packet_reg);
+
+	MDP_OUTP(MDP_BASE + 0x00098, 0x01);
+
+	MDP_OUTP(MDP_BASE + 0xa0000, dma_s_cfg_reg);
+
+	mdp4_mddi_vsync_enable(mfd, pipe, 1);
+
+	/* MDP cmd block disable */
+	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+}
+
+void mdp4_mddi_dma_s_kickoff(struct msm_fb_data_type *mfd,
+				struct mdp4_overlay_pipe *pipe)
+{
+#ifdef MDP4_NONBLOCKING
+	unsigned long flag;
+	boolean busy;
+
+	busy = FALSE;
+	spin_lock_irqsave(&mdp_spin_lock, flag);
+	if (mfd->dma->busy == TRUE) {
+		INIT_COMPLETION(mddi_comp);
+		busy = TRUE;
+	}
+	spin_unlock_irqrestore(&mdp_spin_lock, flag);
+
+	if (busy == TRUE) {
+		/* wait until DMA finishes the current job */
+		wait_for_completion_killable(&mddi_comp);
+	}
+#endif
+
+	down(&mfd->sem);
+	mdp_enable_irq(MDP_DMA_S_TERM);
+	mfd->dma->busy = TRUE;
+	INIT_COMPLETION(pipe->dmas_comp);
+	mfd->ibuf_flushed = TRUE;
+	pending_pipe = pipe;
+	/* start dma_s pipe */
+	mdp_pipe_kickoff(MDP_DMA_S_TERM, mfd);
+	up(&mfd->sem);
+
+	/* wait until DMA finishes the current job */
+	wait_for_completion_killable(&pipe->dmas_comp);
+	pending_pipe = NULL;
+	mdp_disable_irq(MDP_DMA_S_TERM);
+}
+
+void mdp4_mddi_overlay_dmas_restore(void)
+{
+	/* mutex holded by caller */
+	if (mddi_mfd && mddi_pipe) {
+		mdp4_dma_s_update_lcd(mddi_mfd, mddi_pipe);
+		mdp4_mddi_dma_s_kickoff(mddi_mfd, mddi_pipe);
+	}
+}
+#endif
+
 
 void mdp4_mddi_overlay(struct msm_fb_data_type *mfd)
 {
 	mutex_lock(&mfd->dma->ov_mutex);
 
+#ifdef MDP4_NONBLOCKING
+	if (mfd && mfd->panel_power_on) {
+#else
 	if ((mfd) && (!mfd->dma->busy) && (mfd->panel_power_on)) {
+#endif
 		mdp4_overlay_update_lcd(mfd);
 
-		mdp4_mddi_overlay_kickoff(mfd, mddi_pipe);
+#ifdef MDP4_MDDI_DMA_SWITCH
+		if (mdp4_overlay_pipe_staged(mddi_pipe->mixer_num) <= 1) {
+			mdp4_dma_s_update_lcd(mfd, mddi_pipe);
+			mdp4_mddi_dma_s_kickoff(mfd, mddi_pipe);
+		} else
+#endif
+			mdp4_mddi_overlay_kickoff(mfd, mddi_pipe);
+
+		mdp4_stat.kickoff_mddi++;
 
 	/* signal if pan function is waiting for the update completion */
 		if (mfd->pan_waiting) {

@@ -189,6 +189,9 @@ struct msm_panel_common_pdata {
 	int (*panel_num)(void);
 	void (*panel_config_gpio)(int);
 	int *gpio_num;
+	int mdp_core_clk_rate;
+	unsigned num_mdp_clk;
+	int *mdp_core_clk_table;
 };
 
 struct lcdc_platform_data {
@@ -203,6 +206,10 @@ struct tvenc_platform_data {
 struct mddi_platform_data {
 	void (*mddi_power_save)(int on);
 	int (*mddi_sel_clk)(u32 *clk_rate);
+};
+
+struct mipi_dsi_platform_data {
+	int (*dsi_power_save)(int on);
 };
 
 struct msm_fb_platform_data {

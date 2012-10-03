@@ -1,28 +1,29 @@
 /* Copyright (c) 2008-2010, Code Aurora Forum. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
+ * modification, are permitted provided that the following conditions are
+ * met:
  *     * Redistributions of source code must retain the above copyright
  *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimer in the
- *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of Code Aurora nor
- *       the names of its contributors may be used to endorse or promote
- *       products derived from this software without specific prior written
- *       permission.
+ *     * Redistributions in binary form must reproduce the above
+ *       copyright notice, this list of conditions and the following
+ *       disclaimer in the documentation and/or other materials provided
+ *       with the distribution.
+ *     * Neither the name of Code Aurora Forum, Inc. nor the names of its
+ *       contributors may be used to endorse or promote products derived
+ *       from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NON-INFRINGEMENT ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
- * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
- * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
- * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
- * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED "AS IS" AND ANY EXPRESS OR IMPLIED
+ * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
+ * BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+ * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
+ * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  */
 
@@ -42,14 +43,16 @@ typedef struct panel_id_s {
 } panel_id_type;
 
 /* panel type list */
-#define NO_PANEL       0xffff	/* No Panel */
-#define MDDI_PANEL     1	/* MDDI */
-#define EBI2_PANEL     2	/* EBI2 */
-#define LCDC_PANEL     3	/* internal LCDC type */
-#define EXT_MDDI_PANEL 4	/* Ext.MDDI */
-#define TV_PANEL       5	/* TV */
-#define HDMI_PANEL     6	/* HDMI TV */
-#define DTV_PANEL      7	/* DTV */
+#define NO_PANEL		0xffff	/* No Panel */
+#define MDDI_PANEL		1	/* MDDI */
+#define EBI2_PANEL		2	/* EBI2 */
+#define LCDC_PANEL		3	/* internal LCDC type */
+#define EXT_MDDI_PANEL		4	/* Ext.MDDI */
+#define TV_PANEL		5	/* TV */
+#define HDMI_PANEL		6	/* HDMI TV */
+#define DTV_PANEL		7	/* DTV */
+#define MIPI_VIDEO_PANEL	8	/* MIPI */
+#define MIPI_CMD_PANEL		9	/* MIPI */
 
 /* panel class */
 typedef enum {
@@ -75,6 +78,7 @@ struct lcd_panel_info {
 	__u32 v_pulse_width;
 	__u32 hw_vsync_mode;
 	__u32 vsync_notifier_period;
+	__u32 rev;
 };
 
 struct lcdc_panel_info {
@@ -107,10 +111,7 @@ struct msm_panel_info {
 	__u32 clk_min;
 	__u32 clk_max;
 	__u32 frame_count;
-#if defined(CONFIG_MACH_ACER_A1)
-	__u32 width;	// width of picture in mm
-	__u32 height;	// height of picture in mm
-#endif
+
 	union {
 		struct mddi_panel_info mddi;
 	};
@@ -141,7 +142,7 @@ struct platform_device *msm_fb_device_alloc(struct msm_fb_panel_data *pdata,
 int panel_next_on(struct platform_device *pdev);
 int panel_next_off(struct platform_device *pdev);
 
-int lcdc_device_register(struct msm_panel_info *pinfo, struct msm_fb_panel_data *pdata);
+int lcdc_device_register(struct msm_panel_info *pinfo);
 
 int mddi_toshiba_device_register(struct msm_panel_info *pinfo,
 					u32 channel, u32 panel);

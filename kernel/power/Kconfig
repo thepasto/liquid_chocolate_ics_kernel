@@ -19,15 +19,6 @@ config PM
 	  will issue the hlt instruction if nothing is to be done, thereby
 	  sending the processor to sleep and saving power.
 
-config IP_FILTER
-	bool "Enable IP filter support"
-	depends on PM
-
-config FAST_DORMANCY
-	bool "Enable FAST DORMANCY support"
-	depends on PM
-
-
 config PM_DEBUG
 	bool "Power Management Debug Support"
 	depends on PM
@@ -35,6 +26,15 @@ config PM_DEBUG
 	This option enables various debugging support in the Power Management
 	code. This is helpful when debugging and reporting PM bugs, like
 	suspend support.
+
+config PM_ADVANCED_DEBUG
+	bool "Extra PM attributes in sysfs for low-level debugging/testing"
+	depends on PM_DEBUG
+	default n
+	---help---
+	Add extra sysfs attributes allowing one to access some Power Management
+	fields of device objects from user space.  If you are not a kernel
+	developer interested in debugging/testing Power Management, say "no".
 
 config PM_VERBOSE
 	bool "Verbose Power Management debugging"
@@ -94,9 +94,18 @@ config PM_SLEEP
 	depends on SUSPEND || HIBERNATION || XEN_SAVE_RESTORE
 	default y
 
+config PM_SLEEP_ADVANCED_DEBUG
+	bool
+	depends on PM_ADVANCED_DEBUG
+	default n
+
+config SUSPEND_NVS
+       bool
+
 config SUSPEND
 	bool "Suspend to RAM and standby"
 	depends on PM && ARCH_SUSPEND_POSSIBLE
+	select SUSPEND_NVS if HAS_IOMEM
 	default y
 	---help---
 	  Allow the system to enter sleep states in which main memory is
@@ -195,6 +204,7 @@ endchoice
 config HIBERNATION
 	bool "Hibernation (aka 'suspend to disk')"
 	depends on PM && SWAP && ARCH_HIBERNATION_POSSIBLE
+	select SUSPEND_NVS if HAS_IOMEM
 	---help---
 	  Enable the suspend to disk (STD) functionality, which is usually
 	  called "hibernation" in user interfaces.  STD checkpoints the
@@ -281,36 +291,21 @@ config APM_EMULATION
 	  anything, try disabling/enabling this option (or disabling/enabling
 	  APM in your BIOS).
 
-config NPA
-	bool "Node Power Architecture(NPA) support"
-	default n
-	help
-	  Enable support for Node Power Architecture for aggressive
-	  resource power management. NPA provides an interface for resources
-	  to export their parameters and clients to request a value. The
-	  resources have additional facility to aggreate requests, calculate
-	  the resultant value, apply the value and notify the clients of
-	  change in state.
+config PM_RUNTIME
+	bool "Run-time PM core functionality"
+	depends on PM
+	---help---
+	  Enable functionality allowing I/O devices to be put into energy-saving
+	  (low power) states at run time (or autosuspended) after a specified
+	  period of inactivity and woken up in response to a hardware-generated
+	  wake-up event or a driver's request.
 
-config NPA_LOG
-	bool "Node Power Architecture(NPA) logging support"
-	depends on NPA
+	  Hardware support is generally required for this functionality to work
+	  and the bus type drivers of the buses the devices are on are
+	  responsible for the actual handling of the autosuspend requests and
+	  wake-up events.
+
+config PM_OPS
+	bool
+	depends on PM_SLEEP || PM_RUNTIME
 	default y
-	help
-	  Enable logging support for NPA.
-
-config NPA_DEBUG
-	bool "Node Power Architecture(NPA) debug support"
-	depends on NPA
-	default n
-	help
-	  Exports functions that can debug or reset NPA internal
-	  data structures.
-
-config NPA_REMOTE
-	bool "Node Power Architecture(NPA) remoting"
-	depends on NPA
-	default n
-	help
-	  Enables Linux NPA clients to talk to NPA nodes across
-	  processor boundary.

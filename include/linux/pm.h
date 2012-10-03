@@ -318,34 +318,18 @@ enum dpm_state {
 	DPM_OFF_IRQ,
 };
 
-/**
- * Device run-time power management status.
- *
- * These status labels are used internally by the PM core to indicate the
- * current status of a device with respect to the PM core operations.  They do
- * not reflect the actual power state of the device or its status as seen by the
- * driver.
- *
- * RPM_ACTIVE		Device is fully operational.  Indicates that the device
- *			bus type's ->runtime_resume() callback has completed
- *			successfully.
- *
- * RPM_SUSPENDED	Device bus type's ->runtime_suspend() callback has
- *			completed successfully.  The device is regarded as
- *			suspended.
- *
- * RPM_RESUMING		Device bus type's ->runtime_resume() callback is being
- *			executed.
- *
- * RPM_SUSPENDING	Device bus type's ->runtime_suspend() callback is being
- *			executed.
- */
-
 enum rpm_status {
 	RPM_ACTIVE = 0,
 	RPM_RESUMING,
 	RPM_SUSPENDED,
 	RPM_SUSPENDING,
+};
+
+enum rpm_request {
+	RPM_REQ_NONE = 0,
+	RPM_REQ_IDLE,
+	RPM_REQ_SUSPEND,
+	RPM_REQ_RESUME,
 };
 
 struct dev_pm_info {
@@ -355,6 +339,25 @@ struct dev_pm_info {
 	enum dpm_state		status;		/* Owned by the PM core */
 #ifdef	CONFIG_PM_SLEEP
 	struct list_head	entry;
+#endif
+#ifdef CONFIG_PM_RUNTIME
+	struct timer_list	suspend_timer;
+	unsigned long		timer_expires;
+	struct work_struct	work;
+	wait_queue_head_t	wait_queue;
+	spinlock_t		lock;
+	atomic_t		usage_count;
+	atomic_t		child_count;
+	unsigned int		disable_depth:3;
+	unsigned int		ignore_children:1;
+	unsigned int		idle_notification:1;
+	unsigned int		request_pending:1;
+	unsigned int		deferred_resume:1;
+	unsigned int		run_wake:1;
+	unsigned int		runtime_auto:1;
+	enum rpm_request	request;
+	enum rpm_status		runtime_status;
+	int			runtime_error;
 #endif
 };
 
@@ -415,14 +418,13 @@ struct dev_pm_info {
 #ifdef CONFIG_PM_SLEEP
 extern void device_pm_lock(void);
 extern int sysdev_resume(void);
-extern void device_power_up(pm_message_t state);
-extern void device_resume(pm_message_t state);
+extern void dpm_resume_noirq(pm_message_t state);
+extern void dpm_resume_end(pm_message_t state);
 
 extern void device_pm_unlock(void);
 extern int sysdev_suspend(pm_message_t state);
-extern int device_power_down(pm_message_t state);
-extern int device_suspend(pm_message_t state);
-extern int device_prepare_suspend(pm_message_t state);
+extern int dpm_suspend_noirq(pm_message_t state);
+extern int dpm_suspend_start(pm_message_t state);
 
 extern void __suspend_report_result(const char *function, void *fn, int ret);
 
@@ -433,7 +435,10 @@ extern void __suspend_report_result(const char *function, void *fn, int ret);
 
 #else /* !CONFIG_PM_SLEEP */
 
-static inline int device_suspend(pm_message_t state)
+#define device_pm_lock() do {} while (0)
+#define device_pm_unlock() do {} while (0)
+
+static inline int dpm_suspend_start(pm_message_t state)
 {
 	return 0;
 }
