@@ -1,8 +1,5 @@
 #if defined (CONFIG_ACER_DEBUG)
 #define DEBUG
-#else
-#undef DEBUG
-#define DEBUG
 #endif
 
 #include <linux/input.h>
