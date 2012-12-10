@@ -29,6 +29,7 @@
 #include <linux/ioctl.h>
 #include <asm/uaccess.h>
 #include <linux/miscdevice.h>
+#include <linux/earlysuspend.h>
 
 #include "smb380.h"
 #include "smb380calib.h"
@@ -97,11 +98,16 @@ static const struct i2c_device_id bma150_id[] = {
 	{ }
 };
 
+MODULE_DEVICE_TABLE(i2c, bma150_id);
+
 /* Data for I2C driver */
 struct bma150_data {
 	struct i2c_client *client;
 	struct work_struct work;
 	wait_queue_head_t wait;
+#ifdef CONFIG_HAS_EARLYSUSPEND
+	struct early_suspend early_suspend;
+#endif
 };
 
 static struct bma150_data* bma150_data;
@@ -725,6 +731,28 @@ static irqreturn_t bma150_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+#ifdef CONFIG_HAS_EARLYSUSPEND
+void bma150_early_suspend(struct early_suspend *h)
+{
+	pr_debug("%s ++ entering\n", __FUNCTION__);
+	disable_irq(bma150_data->client->irq);
+	smb380_set_mode(SMB380_MODE_SLEEP);
+	pr_debug("%s -- leaving\n", __FUNCTION__);
+	return 0;
+}
+
+void bma150_early_resume(struct early_suspend *h)
+{
+	pr_debug("%s ++ entering\n", __FUNCTION__);
+	enable_irq(bma150_data->client->irq);
+	smb380_set_mode(SMB380_MODE_NORMAL);
+	/* for first read data integrity after power become normal(specification, page. 21) */
+	smb380_pause(10);
+	gpio_set_value(23, 1);
+	pr_debug("%s -- leaving\n", __FUNCTION__);
+}
+#endif
+
 static int bma150_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
 	int res;
@@ -799,6 +827,13 @@ static int bma150_probe(struct i2c_client *client, const struct i2c_device_id *i
 
 	smb380_set_mode(SMB380_MODE_NORMAL);
 
+#ifdef CONFIG_HAS_EARLYSUSPEND
+	bma150_data->early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN;
+	bma150_data->early_suspend.suspend = bma150_early_suspend;
+	bma150_data->early_suspend.resume = bma150_early_resume;
+	register_early_suspend(&bma150_data->early_suspend);
+#endif
+
 	pr_info("[BMA150] probe done\n");
 	pr_debug("%s -- leaving\n", __FUNCTION__);
 	return 0;
@@ -820,6 +855,9 @@ static int bma150_remove(struct i2c_client *client)
 	misc_deregister(&bma150_dev);
 	free_irq(client->irq, bma150_data);
 	gpio_free(BMA150_GPIO);
+#ifdef CONFIG_HAS_EARLYSUSPEND
+	unregister_early_suspend(&bma150_data->early_suspend);
+#endif
 	kfree(bma150_data);
 	pr_info("[BMA150] remove done\n");
 	return 0;
