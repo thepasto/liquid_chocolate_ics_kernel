@@ -420,15 +420,36 @@ static void avr_early_resume(struct early_suspend *h)
 
 static int avr_suspend(struct i2c_client *client, pm_message_t mesg)
 {
-	pr_debug("[AVR] low power suspend init done.\n");
+	pr_debug("[AVR] %s ++ entering\n", __FUNCTION__);
+
+	kpd_resume_check = false;
+	avr_data.suspended=1;
+	key_clear(avr_data.client);
+	led_off(avr_data.client);
+	disable_irq(avr_data.client->irq);
+	low_power_mode(avr_data.client, 1);
+
+	pr_debug("[AVR] %s -- leaving\n", __FUNCTION__);
 
 	return 0;
 }
 
 static int avr_resume(struct i2c_client *client)
 {
-	pr_debug("[AVR] normal resume init done.\n");
+	pr_debug("[AVR] %s ++ entering\n", __FUNCTION__);
 
+	low_power_mode(avr_data.client,0);
+	enable_irq(avr_data.client->irq);
+
+	avr_data.suspended=0;
+	kpd_resume_check = true;
+
+	if(kpd_pwr_key_check){
+		kpd_pwr_key_check = false;
+		led_on(avr_data.client);
+	}
+
+	pr_debug("[AVR] %s -- leaving\n", __FUNCTION__);
 	return 0;
 }
 
