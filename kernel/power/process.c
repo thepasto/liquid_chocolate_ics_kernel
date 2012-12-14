@@ -9,7 +9,6 @@
 #undef DEBUG
 
 #include <linux/interrupt.h>
-#include <linux/oom.h>
 #include <linux/suspend.h>
 #include <linux/module.h>
 #include <linux/syscalls.h>
@@ -127,12 +126,9 @@ int freeze_processes(void)
 	if (error)
 		goto Exit;
 	printk("done.");
-
-	oom_killer_disable();
  Exit:
 	BUG_ON(in_atomic());
 	printk("\n");
-
 	return error;
 }
 
@@ -158,8 +154,6 @@ static void thaw_tasks(bool nosig_only)
 
 void thaw_processes(void)
 {
-	oom_killer_enable();
-
 	printk("Restarting tasks ... ");
 	thaw_tasks(true);
 	thaw_tasks(false);

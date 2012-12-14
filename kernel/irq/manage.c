@@ -162,20 +162,6 @@ static inline int do_irq_select_affinity(int irq, struct irq_desc *desc)
 }
 #endif
 
-void __disable_irq(struct irq_desc *desc, unsigned int irq, bool suspend)
-{
-	if (suspend) {
-		if (!desc->action || (desc->action->flags & IRQF_TIMER))
-			return;
-		desc->status |= IRQ_SUSPENDED;
-	}
-
-	if (!desc->depth++) {
-		desc->status |= IRQ_DISABLED;
-		desc->chip->disable(irq);
-	}
-}
-
 /**
  *	disable_irq_nosync - disable an irq without waiting
  *	@irq: Interrupt to disable
@@ -195,11 +181,12 @@ void disable_irq_nosync(unsigned int irq)
 	if (!desc)
 		return;
 
-	chip_bus_lock(irq, desc);
 	spin_lock_irqsave(&desc->lock, flags);
-	__disable_irq(desc, irq, false);
+	if (!desc->depth++) {
+		desc->status |= IRQ_DISABLED;
+		desc->chip->disable(irq);
+	}
 	spin_unlock_irqrestore(&desc->lock, flags);
-	chip_bus_sync_unlock(irq, desc);
 }
 EXPORT_SYMBOL(disable_irq_nosync);
 
@@ -228,21 +215,15 @@ void disable_irq(unsigned int irq)
 }
 EXPORT_SYMBOL(disable_irq);
 
-void __enable_irq(struct irq_desc *desc, unsigned int irq, bool resume)
+static void __enable_irq(struct irq_desc *desc, unsigned int irq)
 {
-	if (resume)
-		desc->status &= ~IRQ_SUSPENDED;
-
 	switch (desc->depth) {
 	case 0:
- err_out:
 		WARN(1, KERN_WARNING "Unbalanced enable for IRQ %d\n", irq);
 		break;
 	case 1: {
 		unsigned int status = desc->status & ~IRQ_DISABLED;
 
-		if (desc->status & IRQ_SUSPENDED)
-			goto err_out;
 		/* Prevent probing on this irq: */
 		desc->status = status | IRQ_NOPROBE;
 		check_irq_resend(desc, irq);
@@ -261,8 +242,7 @@ void __enable_irq(struct irq_desc *desc, unsigned int irq, bool resume)
  *	matches the last disable, processing of interrupts on this
  *	IRQ line is re-enabled.
  *
- *	This function may be called from IRQ context only when
- *	desc->chip->bus_lock and desc->chip->bus_sync_unlock are NULL !
+ *	This function may be called from IRQ context.
  */
 void enable_irq(unsigned int irq)
 {
@@ -272,11 +252,9 @@ void enable_irq(unsigned int irq)
 	if (!desc)
 		return;
 
-	chip_bus_lock(irq, desc);
 	spin_lock_irqsave(&desc->lock, flags);
-	__enable_irq(desc, irq, false);
+	__enable_irq(desc, irq);
 	spin_unlock_irqrestore(&desc->lock, flags);
-	chip_bus_sync_unlock(irq, desc);
 }
 EXPORT_SYMBOL(enable_irq);
 
@@ -533,7 +511,7 @@ __setup_irq(unsigned int irq, struct irq_desc * desc, struct irqaction *new)
 	 */
 	if (shared && (desc->status & IRQ_SPURIOUS_DISABLED)) {
 		desc->status &= ~IRQ_SPURIOUS_DISABLED;
-		__enable_irq(desc, irq,false);
+		__enable_irq(desc, irq);
 	}
 
 	spin_unlock_irqrestore(&desc->lock, flags);

@@ -96,9 +96,7 @@ struct platform_suspend_ops {
 	int (*valid)(suspend_state_t state);
 	int (*begin)(suspend_state_t state);
 	int (*prepare)(void);
-	int (*prepare_late)(void);
 	int (*enter)(suspend_state_t state);
-	void (*wake)(void);
 	void (*finish)(void);
 	void (*end)(void);
 	void (*recover)(void);
@@ -132,7 +130,7 @@ extern void arch_suspend_enable_irqs(void);
 
 extern int pm_suspend(suspend_state_t state);
 
-//extern void late_resume(struct work_struct *work);
+extern void late_resume(struct work_struct *work);
 #else /* !CONFIG_SUSPEND */
 #define suspend_valid_only_mem	NULL
 
